@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cli-tool-kit"
+version = "0.1.1"
+description = "Installer protocol + helpers for self-installing Python CLI/GUI tools (desktop shortcuts, bash aliases, cron entries)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Steffen Probst" },
+]
+keywords = ["installer", "desktop", "cron", "cli", "linux", "kde", "gnome"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Installation/Setup",
+]
+dependencies = [
+    "termcolor>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Probst1nator/cli-tool-kit"
+Issues = "https://github.com/Probst1nator/cli-tool-kit/issues"
+
+[tool.setuptools.packages.find]
+include = ["cli_tool_kit*"]
+exclude = ["tests*"]
