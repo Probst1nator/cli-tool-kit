@@ -40,6 +40,7 @@ Each dict in the list describes one installable variant of the tool.
 | `alias` | str | conditional | (derived from `desktop_file`) | Bash alias name. Required when `Icon` is not in tags. |
 | `categories` | str | no | `"Utility;"` | `.desktop` Categories field. |
 | `skill_name` | str | no | — | Opt into Claude Code skill registration — see "Optional `skill_name`" below. |
+| `skill_status` | str | no | — | When the tool registers a skill, it MAY report the installed copy's freshness so the parent can suggest an update. One of `"absent"`, `"current"`, `"stale"` — see "Reporting skill freshness" below. |
 
 ## Tags
 
@@ -178,6 +179,43 @@ Contract the tool must satisfy:
 
 The skill name is the directory under `~/.claude/skills/` and can differ from
 the tool name (e.g. tool `studon-client` registers skill `studon`).
+
+### Reporting skill freshness (`skill_status`)
+
+A skill installed once can drift from the tool's bundled version as the tool
+evolves. To let the parent installer *take note and suggest the update* — rather
+than silently keeping a stale skill — a tool SHOULD also report `skill_status`
+in its advertise dict:
+
+| value | meaning |
+|---|---|
+| `"absent"` | the skill is not installed |
+| `"current"` | the installed `SKILL.md` matches the bundled `SKILL_MD_CONTENT` |
+| `"stale"` | installed, but the content differs — an update is available |
+
+Compute it at advertise time (it must stay cheap — no heavy imports), e.g. for a
+single-file skill:
+
+```python
+def _skill_status() -> str:
+    if not SKILL_FILE.is_file():
+        return "absent"
+    return "current" if SKILL_FILE.read_text(encoding="utf-8") == SKILL_MD_CONTENT else "stale"
+
+if "--advertise" in sys.argv:
+    print(json.dumps([{**METADATA, "skill_status": _skill_status()}]))
+    sys.exit(0)
+```
+
+For multi-file skills, `cli_tool_kit.skill_status(skill_name, bundled_files)`
+does the comparison over a `{relative_path: text}` mapping (content-hash based,
+order-independent), returning the same three values.
+
+When a tool reports `"stale"`, a compliant parent flags the row (e.g.
+`⟳ Skill update`), prints a suggestion at discovery time, and re-runs
+`--install-skill` on apply to refresh the skill in place. Tools that omit
+`skill_status` keep the old behaviour — the installer only distinguishes
+installed-vs-absent.
 
 ## When reinstallation is required
 

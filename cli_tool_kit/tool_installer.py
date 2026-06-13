@@ -317,6 +317,20 @@ StartupWMClass={wm_class}
                         if len(parts) == 2:
                             name = parts[0].strip()
                             cmd = parts[1].strip()
+                            # Strip a trailing unquoted comment (e.g. a tool's
+                            # own `  # marker` tag) before unwrapping. Without
+                            # this, a line like `alias n='cmd'  # tag` fails the
+                            # closing-quote test below, so the inner quotes are
+                            # kept and then double-wrapped on the next save —
+                            # corrupting the alias. Only strip the comment when
+                            # it sits outside a balanced quote (the quote count
+                            # before the `#` is even).
+                            hash_idx = cmd.find("#")
+                            if hash_idx > 0:
+                                before = cmd[:hash_idx]
+                                if before.count("'") % 2 == 0 and \
+                                   before.count('"') % 2 == 0:
+                                    cmd = before.strip()
                             # Only strip outer wrapping quotes (not inner quotes in the command)
                             if (cmd.startswith("'") and cmd.endswith("'")) or \
                                (cmd.startswith('"') and cmd.endswith('"')):

@@ -10,6 +10,10 @@ Provides:
   so each tool's entries can be installed/removed without disturbing others.
 - **`advertise()`** — a one-line helper for the `--advertise` JSON probe
   convention that lets parent installers discover and configure your tools.
+- **`skill_status()`** — detect whether a tool's installed Claude Code skill
+  (`~/.claude/skills/<name>/`) is `absent`, `current`, or `stale` vs. its
+  bundled version, so an installer can suggest updates (`skill_payload_hash`,
+  `installed_skill_hash`, `read_installed_skill` alongside).
 
 See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 
