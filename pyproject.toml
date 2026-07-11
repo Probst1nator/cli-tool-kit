@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cli-tool-kit"
-version = "0.1.1"
-description = "Installer protocol + helpers for self-installing Python CLI/GUI tools (desktop shortcuts, bash aliases, cron entries)"
+version = "0.2.0"
+description = "Installer protocol + helpers for self-installing Python CLI/GUI tools (desktop shortcuts, bash aliases, cron entries), plus a reusable tkinter GUI installer engine"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -35,6 +35,15 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+# The reusable tkinter GUI installer engine (cli_tool_kit.gui_installer) needs
+# Pillow for tool-icon rendering. tkinter itself ships with CPython. The engine
+# degrades gracefully (icons disabled) when Pillow is absent, so this stays optional.
+gui = [
+    "Pillow>=9.0",
+]
+
+[project.scripts]
+cli-tool-installer = "cli_tool_kit.gui_installer:run"
 
 [project.urls]
 Homepage = "https://github.com/Probst1nator/cli-tool-kit"

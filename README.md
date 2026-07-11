@@ -14,6 +14,13 @@ Provides:
   (`~/.claude/skills/<name>/`) is `absent`, `current`, or `stale` vs. its
   bundled version, so an installer can suggest updates (`skill_payload_hash`,
   `installed_skill_hash`, `read_installed_skill` alongside).
+- **`gui_installer`** — a full, reusable tkinter GUI installer *engine*: it
+  discovers every tool in a project tree that speaks `--advertise`, and offers
+  batch install/remove, per-row skill toggles, themes, orphan cleanup, and an
+  opt-in login update-check. A thin wrapper points it at its own tree via
+  `gui_installer.run(root_dir=..., entry_script=...)`; everything else
+  (discovery layout, repo-cache bootstrap, login-check policy, window/desktop
+  identities) is configurable. See [§ GUI installer engine](#gui-installer-engine).
 
 See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 
@@ -100,6 +107,46 @@ cron.remove()                     # strips only lines bearing this marker
 Each managed line gets a trailing `# cli-tool-kit:<marker>` comment.
 Re-installing the same lines is a no-op; other tools' cron entries are
 untouched.
+
+## GUI installer engine
+
+`cli_tool_kit.gui_installer` is a batteries-included tkinter installer that any
+project tree can reuse instead of forking. A wrapper is a few lines:
+
+```python
+# my-project/installer.py
+import os, sys
+from cli_tool_kit.gui_installer import run
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if __name__ == "__main__":
+    run(root_dir=HERE, entry_script=__file__)   # GUI default; --list/--check/... too
+```
+
+`run(...)` (and the bare module-level config globals it sets) take everything a
+tree might differ on: `discoverer` (how to find entry points — defaults to the
+`tools_*/<tool>/main.py` layout), `pre_discovery` (a hook to bootstrap/clone
+repos before scanning; skipped on the login-check path so a login hook never
+touches the network), `check_reconcile_shortcuts` (set `False` for a tree whose
+`--install` has login-unsafe side effects, making `--check` skill-only), and the
+window title / desktop-file / WM-class / autostart-name identities so several
+installers coexist on one host.
+
+The GUI needs Pillow for icon thumbnails — install the extra:
+
+```bash
+pip install "cli-tool-kit[gui]"
+```
+
+Installing the package also exposes a `cli-tool-installer` console script that
+runs the engine against the current working directory.
+
+### Used by
+
+- [`tools/installer.py`](https://github.com/Probst1nator) — the `tools/` root
+  installer (`tools_*/<tool>/` layout).
+- `AutomatedAlchemy/installer.py` — flat FAU-tooling tree with a `repos.json`
+  repo cache and a skill-only, network-free login check.
 
 ## Tests
 
