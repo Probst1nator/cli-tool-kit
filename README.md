@@ -141,12 +141,15 @@ pip install "cli-tool-kit[gui]"
 Installing the package also exposes a `cli-tool-installer` console script that
 runs the engine against the current working directory.
 
-### Used by
+### Consumer patterns
 
-- [`tools/installer.py`](https://github.com/Probst1nator) — the `tools/` root
-  installer (`tools_*/<tool>/` layout).
-- `AutomatedAlchemy/installer.py` — flat FAU-tooling tree with a `repos.json`
-  repo cache and a skill-only, network-free login check.
+The engine is exercised daily by two (private) tool trees with deliberately
+different shapes, which is what the configuration surface reflects:
+
+- a monorepo with a `tools_*/<tool>/main.py` layout (the default discoverer),
+- a flat tree of independent repos bootstrapped from a `repos.json` cache via
+  the `pre_discovery` hook, with a skill-only, network-free login check
+  (`check_reconcile_shortcuts = False`).
 
 ## Tests
 
