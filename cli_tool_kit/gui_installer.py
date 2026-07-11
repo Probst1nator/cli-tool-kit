@@ -2031,9 +2031,11 @@ class InstallerApp:
         # script_path within each capability. capability is always populated
         # (get_metadata_native falls back to the folder label), so this never
         # keys on "". Sorted so the cluster headers are stable across runs.
+        # NB: must not reuse `t` here — it holds the theme dict for the whole
+        # of _setup_ui (footer, log box and search-focus closures read it).
         tools_by_capability: Dict[str, List[ToolEntry]] = {}
-        for t in self.tools:
-            tools_by_capability.setdefault(t.capability, []).append(t)
+        for entry in self.tools:
+            tools_by_capability.setdefault(entry.capability, []).append(entry)
 
         # Convert to groups within each capability cluster
         categories: Dict[str, List[ToolGroup]] = {}
