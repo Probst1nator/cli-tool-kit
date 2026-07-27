@@ -94,6 +94,19 @@ _DEBUG_CELL_COLORS = {
 # edges form one continuous line.
 TABLE_PADX = (10, 20)
 
+# ttk style swaps applied to a row's widgets while hovered (base → hover
+# variant), plus the reverse for restore. The hover variants only tint the
+# widget backgrounds to the row-highlight color — no size or text-color change.
+# See _set_row_emphasis / _apply_theme.
+_ROW_HOVER_STYLES = {
+    "Card.TFrame": "CardHover.TFrame",
+    "Card.TLabel": "CardHover.TLabel",
+    "CardToolName.TLabel": "CardHoverToolName.TLabel",
+    "CardMuted.TLabel": "CardHoverMuted.TLabel",
+    "Card.TCheckbutton": "CardHover.TCheckbutton",
+}
+_ROW_HOVER_STYLES_REV = {v: k for k, v in _ROW_HOVER_STYLES.items()}
+
 # ROOT_DIR — the project tree being managed. Defaults to the directory of this
 # module for standalone use, but a wrapper almost always overrides it via
 # run(root_dir=...) to point at its own tree (so discovery, .env, and the
@@ -1735,6 +1748,19 @@ class InstallerApp:
         ])
 
     @staticmethod
+    def _mix_hex(a: str, b: str, frac: float) -> str:
+        """Blend hex color *a* toward *b* by *frac* (0..1) and return hex."""
+        def to_rgb(h):
+            h = h.lstrip("#")
+            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        ar, ag, ab = to_rgb(a)
+        br, bg, bb = to_rgb(b)
+        r = round(ar + (br - ar) * frac)
+        g = round(ag + (bg - ag) * frac)
+        bl = round(ab + (bb - ab) * frac)
+        return f"#{r:02x}{g:02x}{bl:02x}"
+
+    @staticmethod
     def _derive_theme(stock: dict, base_hex: str) -> dict:
         """Re-derive a whole theme from a base color.
 
@@ -1850,6 +1876,20 @@ class InstallerApp:
         self.style.configure("CardMuted.TLabel", foreground=t["muted"], background=t["panel"])
         self.style.configure("Card.TCheckbutton", background=t["panel"], foreground=t["fg"])
         self.style.map("Card.TCheckbutton", background=[("active", t["panel"])])
+        # Hover-emphasis card styles — a row lifts onto a slightly accent-tinted
+        # surface while hovered. Backgrounds only: the name keeps its normal font
+        # and color so nothing resizes or recolors. Swapped in per-row by
+        # _bind_row_hover; the panel color is stashed on the theme so tk-frame
+        # backgrounds can match.
+        panel_hover = self._mix_hex(t["panel"], t["accent"], 0.14)
+        t["panel_hover"] = panel_hover
+        self.style.configure("CardHover.TFrame", background=panel_hover)
+        self.style.configure("CardHover.TLabel", background=panel_hover, foreground=t["fg"])
+        self.style.configure("CardHoverToolName.TLabel", font=("", 10, "bold"),
+                             background=panel_hover, foreground=t["fg"])
+        self.style.configure("CardHoverMuted.TLabel", foreground=t["muted"], background=panel_hover)
+        self.style.configure("CardHover.TCheckbutton", background=panel_hover, foreground=t["fg"])
+        self.style.map("CardHover.TCheckbutton", background=[("active", panel_hover)])
         # LabelFrame styling for dialogs
         self.style.configure("TLabelframe", background=t["bg"], foreground=t["fg"])
         self.style.configure("TLabelframe.Label", background=t["bg"], foreground=t["accent"])
@@ -3636,6 +3676,71 @@ class InstallerApp:
         self.tk_frames.extend((wrap, inner))
         return inner
 
+    def _set_row_emphasis(self, card: tk.Widget, on: bool) -> None:
+        """Toggle the hovered-row look across *card*'s whole subtree: swap each
+        Card ttk widget to its CardHover variant (accent-tinted surface, name
+        brightened + a point larger) and repaint the plain tk panel frames to
+        the matching hover color. Restores exactly on off. Tag pills (their own
+        colored bg) and the 1px grid separators (border bg) are left untouched."""
+        panel = self.theme["panel"]
+        panel_hover = self.theme.get("panel_hover", panel)
+        style_map = _ROW_HOVER_STYLES if on else _ROW_HOVER_STYLES_REV
+        frame_from, frame_to = (panel, panel_hover) if on else (panel_hover, panel)
+
+        def walk(w):
+            try:
+                cur = str(w.cget("style"))
+            except tk.TclError:
+                cur = ""
+            if cur in style_map:
+                try:
+                    w.configure(style=style_map[cur])
+                except tk.TclError:
+                    pass
+            else:
+                # Plain tk widget: repaint only panel-colored surfaces so tag
+                # pills and grid lines keep their own colors.
+                try:
+                    if str(w.cget("bg")) == frame_from:
+                        w.configure(bg=frame_to)
+                except tk.TclError:
+                    pass
+            for child in w.winfo_children():
+                walk(child)
+
+        walk(card)
+
+    def _bind_row_hover(self, card: tk.Widget) -> None:
+        """Light a tools-table row up while it's hovered: lift it onto an
+        accent-tinted surface (_set_row_emphasis) on enter, restore on leave.
+        No size or text-color change — only the row background tints.
+
+        Enter/Leave crossing events fire on *card* for its whole descendant
+        subtree, so binding on the card alone covers the row; a winfo_containing
+        check on leave keeps moving between the row's own child widgets from
+        being mistaken for leaving."""
+        state = {"on": False}
+
+        def set_on(on: bool) -> None:
+            if on != state["on"]:
+                state["on"] = on
+                self._set_row_emphasis(card, on)
+
+        def pointer_inside() -> bool:
+            try:
+                w = card.winfo_containing(
+                    card.winfo_pointerx(), card.winfo_pointery())
+            except tk.TclError:
+                return False
+            while w is not None:
+                if w is card:
+                    return True
+                w = getattr(w, "master", None)
+            return False
+
+        card.bind("<Enter>", lambda _e: set_on(True), add="+")
+        card.bind("<Leave>", lambda _e: set_on(pointer_inside()), add="+")
+
     def _build_right_cells(self, container: tk.Frame, bg: str) -> Dict[str, tk.Frame]:
         """Pack the fixed-width right-hand cells into *container*, each preceded
         by a 1px vertical grid line, and return them keyed by column.
@@ -3690,6 +3795,7 @@ class InstallerApp:
 
         tool_row = ttk.Frame(card, padding=(10 + indent, 6, 10, 6), style="Card.TFrame")
         tool_row.pack(side="left", fill="both", expand=True)
+        self._bind_row_hover(card)
 
         # Left side: Checkbox
         var = tk.BooleanVar(value=is_installed(tool))
@@ -3824,6 +3930,7 @@ class InstallerApp:
 
         parent_row = ttk.Frame(card, padding=(10, 6, 10, 6), style="Card.TFrame")
         parent_row.pack(side="left", fill="both", expand=True)
+        self._bind_row_hover(card)
 
         key = f"{parent.category}_{parent.name}"
 
