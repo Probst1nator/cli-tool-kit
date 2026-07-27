@@ -70,6 +70,30 @@ except ImportError:
 
 DEBUG_LAYOUT = False  # Set to True to color-code layout frames for debugging
 
+# Right-hand table columns — (key, pixel width) — shared by the header row and
+# every tool row via InstallerApp._build_right_cells, so the 1px column grid
+# lines align across header, single, parent and child rows.
+RIGHT_COLS = (
+    ("uses", 55),
+    ("status", 115),
+    ("skill", 65),
+    ("icon", 50),
+    ("autostart", 85),
+)
+
+_DEBUG_CELL_COLORS = {
+    "uses": "#00ffff",
+    "status": "#0000ff",
+    "skill": "#00ff88",
+    "icon": "#ffff00",
+    "autostart": "#ff00ff",
+}
+
+# Outer left/right margin of the tools table. Header, category bands and tool
+# rows all use the same margin (via _table_row_surface) so the table's outer
+# edges form one continuous line.
+TABLE_PADX = (10, 20)
+
 # ROOT_DIR — the project tree being managed. Defaults to the directory of this
 # module for standalone use, but a wrapper almost always overrides it via
 # run(root_dir=...) to point at its own tree (so discovery, .env, and the
@@ -2045,69 +2069,45 @@ class InstallerApp:
         self.expand_vars: Dict[str, tk.BooleanVar] = {}  # Track expanded state
         self.children_frames: Dict[str, ttk.Frame] = {}  # Track child frames for show/hide
 
-        # Column headers row - using pack with fixed-width frames to match rows
-        header_row = ttk.Frame(self.scrollable_frame, padding=(20, 5, 20, 5))
-        header_row.grid(row=0, column=0, sticky="ew")
+        # Column headers — the first row of the tools table (draws the top line)
+        header_container = ttk.Frame(self.scrollable_frame)
+        header_container.grid(row=0, column=0, sticky="ew", pady=(5, 0))
+        theme_bg = self.theme["bg"]
+        header_row = self._table_row_surface(header_container, theme_bg, top_line=True)
 
         # Left: Checkbox spacer
-        ttk.Label(header_row, text="", width=3).pack(side="left", padx=(0, 10))
+        ttk.Label(header_row, text="", width=3).pack(side="left", padx=(10, 10))
 
         # Right side headers container (pack right so it claims space first)
-        theme_bg = self.theme["bg"]
         right_headers = tk.Frame(header_row, bg=theme_bg, highlightthickness=0)
-        right_headers.pack(side="right")
+        right_headers.pack(side="right", fill="y")
         self.tk_frames.append(right_headers)
 
         # Tool name header (takes remaining space)
-        ttk.Label(header_row, text="Tool", style="Header.TLabel").pack(side="left", fill="x", expand=True)
+        ttk.Label(header_row, text="Tool", style="Header.TLabel").pack(
+            side="left", fill="x", expand=True, pady=4)
 
-        # Uses header (fixed width, use tk.Frame with height)
-        uses_header = tk.Frame(right_headers, width=50, height=20, bg=theme_bg, highlightthickness=0)
-        uses_header.pack(side="left", padx=(0, 5))
-        uses_header.pack_propagate(False)
-        self.tk_frames.append(uses_header)
-        ttk.Label(uses_header, text="Uses", style="Muted.TLabel", anchor="center").pack(expand=True, fill="both")
-
-        # Status header (fixed width, use tk.Frame with height)
-        status_header = tk.Frame(right_headers, width=110, height=20, bg=theme_bg, highlightthickness=0)
-        status_header.pack(side="left", padx=(0, 5))
-        status_header.pack_propagate(False)
-        self.tk_frames.append(status_header)
-        ttk.Label(status_header, text="Status", style="Muted.TLabel", anchor="center").pack(expand=True, fill="both")
-
-        # Skill header (fixed width) — checkbox appears per-row only when tool.skill_name is set
-        skill_header = tk.Frame(right_headers, width=60, height=20, bg=theme_bg, highlightthickness=0)
-        skill_header.pack(side="left", padx=(0, 5))
-        skill_header.pack_propagate(False)
-        self.tk_frames.append(skill_header)
-        ttk.Label(skill_header, text="Skill", style="Muted.TLabel", anchor="center").pack(expand=True, fill="both")
-
-        # Icon header (fixed width, use tk.Frame with height)
-        icon_header = tk.Frame(right_headers, width=40, height=20, bg=theme_bg, highlightthickness=0)
-        icon_header.pack(side="left", padx=5)
-        icon_header.pack_propagate(False)
-        self.tk_frames.append(icon_header)
-        ttk.Label(icon_header, text="Icon", style="Muted.TLabel", anchor="center").pack(expand=True, fill="both")
-
-        # Auto-Start header (fixed width, use tk.Frame with height)
-        autostart_header = tk.Frame(right_headers, width=80, height=20, bg=theme_bg, highlightthickness=0)
-        autostart_header.pack(side="left", padx=(5, 0))
-        autostart_header.pack_propagate(False)
-        self.tk_frames.append(autostart_header)
-        ttk.Label(autostart_header, text="Auto-Start", style="Muted.TLabel", anchor="center").pack(expand=True, fill="both")
+        # Fixed-width column headers on the shared table grid
+        header_cells = self._build_right_cells(right_headers, theme_bg)
+        for col_key, text in (("uses", "Uses"), ("status", "Status"),
+                              ("skill", "Skill"), ("icon", "Icon"),
+                              ("autostart", "Auto-Start")):
+            ttk.Label(header_cells[col_key], text=text, style="Muted.TLabel",
+                      anchor="center").pack(expand=True, fill="both")
 
         current_row = 1
         for category, cat_groups in categories.items():
-            # Category Header
-            cat_frame = ttk.Frame(self.scrollable_frame, padding=(10, 15, 10, 5))
-            cat_frame.grid(row=current_row, column=0, sticky="ew")
-            cat_frame.columnconfigure(2, weight=1)
+            # Category header — a full-width section band inside the table,
+            # on the window bg so it reads darker than the panel-bg tool rows.
+            cat_container = ttk.Frame(self.scrollable_frame)
+            cat_container.grid(row=current_row, column=0, sticky="ew")
+            band = self._table_row_surface(cat_container, theme_bg)
 
-            accent_bar = tk.Frame(cat_frame, bg=self.theme["accent"], width=3, height=14)
-            accent_bar.grid(row=0, column=0, padx=(0, 8))
+            accent_bar = tk.Frame(band, bg=self.theme["accent"], width=3, height=14)
+            accent_bar.pack(side="left", padx=(8, 8), pady=7)
             self.tk_frames.append(accent_bar)
-            ttk.Label(cat_frame, text=category.upper(), style="Category.TLabel").grid(row=0, column=1, sticky="w")
-            self.category_widgets[category] = cat_frame
+            ttk.Label(band, text=category.upper(), style="Category.TLabel").pack(side="left")
+            self.category_widgets[category] = cat_container
 
             current_row += 1
 
@@ -3621,6 +3621,43 @@ class InstallerApp:
             desc_text = f"{tool.description}  ->  {tool.alias}"
         return desc_text
 
+    def _table_row_surface(self, parent: tk.Widget, bg: str,
+                           top_line: bool = False) -> tk.Frame:
+        """Return a row surface for the tools table: a *bg*-colored frame in a
+        border-colored wrapper that draws the row's 1px side and bottom grid
+        lines (plus the top line when *top_line* — only the table's first,
+        always-visible row draws one). Rows otherwise get their top line from
+        the row above, so seams stay a single pixel and the table stays closed
+        under per-row grid_remove() filtering."""
+        wrap = tk.Frame(parent, bg=self.theme["border"], highlightthickness=0)
+        wrap.pack(fill="x", padx=TABLE_PADX)
+        inner = tk.Frame(wrap, bg=bg, highlightthickness=0)
+        inner.pack(fill="both", expand=True, padx=1, pady=(1 if top_line else 0, 1))
+        self.tk_frames.extend((wrap, inner))
+        return inner
+
+    def _build_right_cells(self, container: tk.Frame, bg: str) -> Dict[str, tk.Frame]:
+        """Pack the fixed-width right-hand cells into *container*, each preceded
+        by a 1px vertical grid line, and return them keyed by column.
+
+        Header and row renderers all build their columns through this so the
+        table grid stays aligned. Cells fill the container's height (the
+        height=24 is only a floor for the header row, whose labels are short).
+        """
+        cells: Dict[str, tk.Frame] = {}
+        for col_key, width in RIGHT_COLS:
+            sep = tk.Frame(container, width=1, bg=self.theme["border"],
+                           highlightthickness=0)
+            sep.pack(side="left", fill="y")
+            cell_bg = _DEBUG_CELL_COLORS[col_key] if DEBUG_LAYOUT else bg
+            cell = tk.Frame(container, width=width, height=24, bg=cell_bg,
+                            highlightthickness=0)
+            cell.pack(side="left", fill="y")
+            cell.pack_propagate(False)
+            self.tk_frames.append(cell)
+            cells[col_key] = cell
+        return cells
+
     def _render_tag_pills(self, name_row, tags) -> None:
         """Render tag badges as filled pills on a card row."""
         t = self.theme
@@ -3632,22 +3669,27 @@ class InstallerApp:
             lbl.pack(side="left", padx=(8, 0))
             self.tk_widgets.append(lbl)
 
-    def _render_tool_row(self, tool: ToolEntry, parent_frame: ttk.Frame, indent: int = 20) -> None:
-        """Render a single tool row as a bordered card with fixed-width right columns."""
+    def _render_tool_row(self, tool: ToolEntry, parent_frame: ttk.Frame, indent: int = 0) -> None:
+        """Render a single tool row of the tools table. *indent* adds extra
+        left padding inside the row (child rows of a group) — the row itself
+        always spans the full table width so the table edges stay straight."""
         t = self.theme
-        # Card surface: panel bg one step lighter than the window, thin border.
-        if DEBUG_LAYOUT:
-            card = tk.Frame(parent_frame, bg="#333333")
-        else:
-            card = tk.Frame(parent_frame, bg=t["panel"],
-                            highlightbackground=t["border"], highlightthickness=1)
-        card.pack(fill="x", padx=(indent, 20), pady=3)
-        self.tk_frames.append(card)
-        tool_row = ttk.Frame(card, padding=(10, 6, 10, 6), style="Card.TFrame")
-        tool_row.pack(fill="x")
+        panel_bg = "#333333" if DEBUG_LAYOUT else t["panel"]
+        card = self._table_row_surface(parent_frame, panel_bg)
 
         key = f"{tool.category}_{tool.name}"
-        panel_bg = t["panel"]
+
+        # Right side columns container — a child of the card (not the padded
+        # tool_row) so the 1px column grid lines span the full row height.
+        # Packed first (side right) so it claims space before the info area.
+        right_cols = tk.Frame(card, bg="#ff0000" if DEBUG_LAYOUT else panel_bg,
+                              highlightthickness=0)
+        right_cols.pack(side="right", fill="y")
+        self.tk_frames.append(right_cols)
+        cells = self._build_right_cells(right_cols, panel_bg)
+
+        tool_row = ttk.Frame(card, padding=(10 + indent, 6, 10, 6), style="Card.TFrame")
+        tool_row.pack(side="left", fill="both", expand=True)
 
         # Left side: Checkbox
         var = tk.BooleanVar(value=is_installed(tool))
@@ -3659,47 +3701,27 @@ class InstallerApp:
         cb = ttk.Checkbutton(tool_row, variable=var, style="Card.TCheckbutton")
         cb.pack(side="left", padx=(0, 10))
 
-        # Right side columns container (pack right so it claims space first)
-        right_cols = tk.Frame(tool_row, bg="#ff0000" if DEBUG_LAYOUT else panel_bg,
-                              highlightthickness=0)
-        right_cols.pack(side="right")
-        self.tk_frames.append(right_cols)
-
         # Middle: Name and Description (takes remaining space)
         info_frame = ttk.Frame(tool_row, style="Card.TFrame")
         info_frame.pack(side="left", fill="both", expand=True)
 
-        # Uses column (fixed width)
-        uses_frame = tk.Frame(right_cols, width=50, height=24, bg="#00ffff" if DEBUG_LAYOUT else panel_bg,
-                              highlightthickness=0)
-        uses_frame.pack(side="left", padx=(0, 5))
-        uses_frame.pack_propagate(False)
-        self.tk_frames.append(uses_frame)
+        # Uses column
+        uses_frame = cells["uses"]
         usage_key = self._get_tool_usage_key(tool)
         usage_count = self.usage_counts.get(usage_key, 0)
         usage_text = str(usage_count) if usage_count > 0 else ""
         uses_label = ttk.Label(uses_frame, text=usage_text, style="CardMuted.TLabel", anchor="center")
         uses_label.pack(expand=True, fill="both")
 
-        # Status column (fixed width, use tk.Frame with height to ensure visibility)
-        status_frame = tk.Frame(right_cols, width=110, height=24, bg="#0000ff" if DEBUG_LAYOUT else panel_bg,
-                                highlightthickness=0)
-        status_frame.pack(side="left", padx=(0, 5))
-        status_frame.pack_propagate(False)
-        self.tk_frames.append(status_frame)
-        status_label = ttk.Label(status_frame, text="", style="Card.TLabel", anchor="center")
+        # Status column
+        status_label = ttk.Label(cells["status"], text="", style="Card.TLabel", anchor="center")
         status_label.pack(expand=True, fill="both")
         self.status_labels[key] = status_label
 
-        # Skill column (fixed width). Only renders a checkbox for tools that
-        # advertise a skill_name; otherwise the column stays empty so column
-        # widths align across all rows.
-        skill_frame = tk.Frame(right_cols, width=60, height=24,
-                               bg="#00ff88" if DEBUG_LAYOUT else panel_bg,
-                               highlightthickness=0)
-        skill_frame.pack(side="left", padx=(0, 5))
-        skill_frame.pack_propagate(False)
-        self.tk_frames.append(skill_frame)
+        # Skill column. Only renders a checkbox for tools that advertise a
+        # skill_name; otherwise the cell stays empty so column widths align
+        # across all rows.
+        skill_frame = cells["skill"]
         if tool.skill_name:
             skill_var = tk.BooleanVar(value=_skill_installed(tool.skill_name))
             self.skill_vars[key] = skill_var
@@ -3710,12 +3732,8 @@ class InstallerApp:
             # Wire Install → Skill auto-check (only once skill_var exists).
             var.trace_add("write", lambda *_a, k=key: self._on_install_var_changed(k))
 
-        # Icon column (fixed width, use tk.Frame with height to ensure visibility)
-        icon_frame = tk.Frame(right_cols, width=40, height=24, bg="#ffff00" if DEBUG_LAYOUT else panel_bg,
-                              highlightthickness=0)
-        icon_frame.pack(side="left", padx=5)
-        icon_frame.pack_propagate(False)
-        self.tk_frames.append(icon_frame)
+        # Icon column
+        icon_frame = cells["icon"]
         _, icon_photo = self._get_effective_icon(tool)
         if icon_photo:
             icon_label = ttk.Label(icon_frame, image=icon_photo, cursor="hand2", style="Card.TLabel")
@@ -3725,12 +3743,8 @@ class InstallerApp:
         icon_label.bind("<Button-1>", lambda e, k=key: self._show_icon_dialog(k))
         self.icon_labels[key] = icon_label
 
-        # Auto-Start checkbox (fixed width, use tk.Frame with height to ensure visibility)
-        autostart_frame = tk.Frame(right_cols, width=80, height=24, bg="#ff00ff" if DEBUG_LAYOUT else panel_bg,
-                                   highlightthickness=0)
-        autostart_frame.pack(side="left", padx=(5, 0))
-        autostart_frame.pack_propagate(False)
-        self.tk_frames.append(autostart_frame)
+        # Auto-Start checkbox
+        autostart_frame = cells["autostart"]
         if "Icon" in tool.tags or tool.cron_schedule:
             autostart_default = (
                 is_autostart_enabled(tool)
@@ -3770,7 +3784,7 @@ class InstallerApp:
             # Single tool - render normally
             container = ttk.Frame(self.scrollable_frame)
             container.grid(row=current_row, column=0, sticky="ew")
-            self._render_tool_row(parent, container, indent=20)
+            self._render_tool_row(parent, container)
             self.tool_group_data.append({
                 # group label = capability; must match the capability-keyed
                 # category_widgets so search show/hide targets the right header.
@@ -3797,15 +3811,19 @@ class InstallerApp:
         parent_container = ttk.Frame(self.scrollable_frame)
         parent_container.grid(row=current_row, column=0, sticky="ew")
 
-        # Parent row rendered as a bordered card (matches _render_tool_row)
+        # Parent row rendered on the shared table surface (matches _render_tool_row)
         t = self.theme
         panel_bg = t["panel"]
-        card = tk.Frame(parent_container, bg=panel_bg,
-                        highlightbackground=t["border"], highlightthickness=1)
-        card.pack(fill="x", padx=(10, 20), pady=3)
-        self.tk_frames.append(card)
+        card = self._table_row_surface(parent_container, panel_bg)
+
+        # Right side columns — child of the card so grid lines span full height
+        right_cols = tk.Frame(card, bg=panel_bg, highlightthickness=0)
+        right_cols.pack(side="right", fill="y")
+        self.tk_frames.append(right_cols)
+        cells = self._build_right_cells(right_cols, panel_bg)
+
         parent_row = ttk.Frame(card, padding=(10, 6, 10, 6), style="Card.TFrame")
-        parent_row.pack(fill="x")
+        parent_row.pack(side="left", fill="both", expand=True)
 
         key = f"{parent.category}_{parent.name}"
 
@@ -3820,41 +3838,25 @@ class InstallerApp:
         cb = ttk.Checkbutton(parent_row, variable=var, style="Card.TCheckbutton")
         cb.pack(side="left", padx=(0, 10))
 
-        # Right side columns container (pack right so it claims space first)
-        right_cols = tk.Frame(parent_row, bg=panel_bg, highlightthickness=0)
-        right_cols.pack(side="right")
-        self.tk_frames.append(right_cols)
-
         # Middle: Name and Description (takes remaining space)
         info_frame = ttk.Frame(parent_row, style="Card.TFrame")
         info_frame.pack(side="left", fill="both", expand=True)
 
-        # Uses column (fixed width)
-        uses_frame = tk.Frame(right_cols, width=50, height=24, bg=panel_bg, highlightthickness=0)
-        uses_frame.pack(side="left", padx=(0, 5))
-        uses_frame.pack_propagate(False)
-        self.tk_frames.append(uses_frame)
+        # Uses column
         usage_key = self._get_tool_usage_key(parent)
         usage_count = self.usage_counts.get(usage_key, 0)
         usage_text = str(usage_count) if usage_count > 0 else ""
-        uses_label = ttk.Label(uses_frame, text=usage_text, style="CardMuted.TLabel", anchor="center")
+        uses_label = ttk.Label(cells["uses"], text=usage_text, style="CardMuted.TLabel", anchor="center")
         uses_label.pack(expand=True, fill="both")
 
-        # Status column (fixed width, use tk.Frame with height)
-        status_frame = tk.Frame(right_cols, width=110, height=24, bg=panel_bg, highlightthickness=0)
-        status_frame.pack(side="left", padx=(0, 5))
-        status_frame.pack_propagate(False)
-        self.tk_frames.append(status_frame)
-        status_label = ttk.Label(status_frame, text="", style="Card.TLabel", anchor="center")
+        # Status column
+        status_label = ttk.Label(cells["status"], text="", style="Card.TLabel", anchor="center")
         status_label.pack(expand=True, fill="both")
         self.status_labels[key] = status_label
 
-        # Skill column (fixed width). Only renders a checkbox for parents that
-        # advertise a skill_name; otherwise the column stays empty.
-        skill_frame = tk.Frame(right_cols, width=60, height=24, bg=panel_bg, highlightthickness=0)
-        skill_frame.pack(side="left", padx=(0, 5))
-        skill_frame.pack_propagate(False)
-        self.tk_frames.append(skill_frame)
+        # Skill column. Only renders a checkbox for parents that advertise a
+        # skill_name; otherwise the cell stays empty.
+        skill_frame = cells["skill"]
         if parent.skill_name:
             skill_var = tk.BooleanVar(value=_skill_installed(parent.skill_name))
             self.skill_vars[key] = skill_var
@@ -3864,11 +3866,8 @@ class InstallerApp:
             skill_cb.pack(expand=True)
             var.trace_add("write", lambda *_a, k=key: self._on_install_var_changed(k))
 
-        # Icon column (fixed width, use tk.Frame with height)
-        icon_frame = tk.Frame(right_cols, width=40, height=24, bg=panel_bg, highlightthickness=0)
-        icon_frame.pack(side="left", padx=5)
-        icon_frame.pack_propagate(False)
-        self.tk_frames.append(icon_frame)
+        # Icon column
+        icon_frame = cells["icon"]
         _, icon_photo = self._get_effective_icon(parent)
         if icon_photo:
             icon_label = ttk.Label(icon_frame, image=icon_photo, cursor="hand2", style="Card.TLabel")
@@ -3878,11 +3877,8 @@ class InstallerApp:
         icon_label.bind("<Button-1>", lambda e, k=key: self._show_icon_dialog(k))
         self.icon_labels[key] = icon_label
 
-        # Auto-Start checkbox (fixed width, use tk.Frame with height)
-        autostart_frame = tk.Frame(right_cols, width=80, height=24, bg=panel_bg, highlightthickness=0)
-        autostart_frame.pack(side="left", padx=(5, 0))
-        autostart_frame.pack_propagate(False)
-        self.tk_frames.append(autostart_frame)
+        # Auto-Start checkbox
+        autostart_frame = cells["autostart"]
         if "Icon" in parent.tags or parent.cron_schedule:
             autostart_default = (
                 is_autostart_enabled(parent)
@@ -3917,7 +3913,7 @@ class InstallerApp:
         self.children_frames[group_key] = children_frame
 
         for child in children:
-            self._render_tool_row(child, children_frame, indent=45)
+            self._render_tool_row(child, children_frame, indent=25)
 
         # Show/hide based on initial state
         if not expand_var.get():
