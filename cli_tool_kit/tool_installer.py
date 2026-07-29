@@ -17,6 +17,8 @@ from typing import Optional, Union, List
 
 _DESKTOP_FORBIDDEN = ("\n", "\r", "\x00")
 
+_EXEC_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+
 
 def _check_desktop_field(value: str, field: str) -> None:
     """Reject embedded newlines/NUL — they let a crafted value inject extra
@@ -226,7 +228,10 @@ StartupWMClass={wm_class}
         with open(desktop_path, "w") as f:
             f.write(content)
 
-        os.chmod(desktop_path, os.stat(desktop_path).st_mode | stat.S_IEXEC)
+        # Deliberately NOT executable. A .desktop in the applications dir needs
+        # no exec bit, and an executable one makes systemd-xdg-autostart-generator
+        # warn on every login once the entry is symlinked into ~/.config/autostart.
+        os.chmod(desktop_path, os.stat(desktop_path).st_mode & ~_EXEC_BITS)
 
         print(colored(f"Installed: {desktop_path}", "green"))
         self._refresh_desktop_database()

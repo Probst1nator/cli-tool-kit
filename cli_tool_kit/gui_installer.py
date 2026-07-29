@@ -5139,7 +5139,12 @@ StartupNotify=true
 StartupWMClass={WM_CLASS}
 """
         with open(desktop_path, "w") as f: f.write(content)
-        os.chmod(desktop_path, os.stat(desktop_path).st_mode | stat.S_IEXEC)
+        # Non-executable on purpose — see ToolInstaller._install_shortcut.
+        os.chmod(
+            desktop_path,
+            os.stat(desktop_path).st_mode
+            & ~(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH),
+        )
         refresh_desktop_database()
         if not quiet:
             print(f"Installed: {desktop_path}")

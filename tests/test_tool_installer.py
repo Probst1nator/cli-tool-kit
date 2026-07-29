@@ -37,6 +37,43 @@ def test_install_desktop_file(sandbox_home: Path) -> None:
     assert script in content
 
 
+def test_installed_desktop_file_is_not_executable(sandbox_home: Path) -> None:
+    """An exec bit here makes systemd-xdg-autostart-generator warn every login
+    once the entry is symlinked into ~/.config/autostart."""
+    script = _make_script(sandbox_home)
+    installer = ToolInstaller(
+        script_path=script,
+        metadata=ToolMetadata(
+            name="Fake Tool",
+            desktop_file="fake_tool.desktop",
+            icon="utilities-terminal",
+            desc="A fake tool for tests",
+            tags=["GUI", "Icon"],
+        ),
+    )
+    installer.install()
+    desktop_path = sandbox_home / ".local/share/applications/fake_tool.desktop"
+    assert desktop_path.stat().st_mode & 0o111 == 0
+
+
+def test_reinstall_clears_a_stale_exec_bit(sandbox_home: Path) -> None:
+    """Entries installed by older versions were 0755; --install must fix them."""
+    script = _make_script(sandbox_home)
+    md = ToolMetadata(
+        name="Fake Tool",
+        desktop_file="fake_tool.desktop",
+        icon="utilities-terminal",
+        desc="A fake tool for tests",
+        tags=["GUI", "Icon"],
+    )
+    installer = ToolInstaller(script_path=script, metadata=md)
+    installer.install()
+    desktop_path = sandbox_home / ".local/share/applications/fake_tool.desktop"
+    desktop_path.chmod(0o755)
+    installer.install()
+    assert desktop_path.stat().st_mode & 0o111 == 0
+
+
 def test_remove_desktop_file(sandbox_home: Path) -> None:
     script = _make_script(sandbox_home)
     md = ToolMetadata(
