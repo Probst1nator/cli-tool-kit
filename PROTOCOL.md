@@ -41,6 +41,25 @@ Each dict in the list describes one installable variant of the tool.
 | `categories` | str | no | `"Utility;"` | `.desktop` Categories field. |
 | `skill_name` | str | no | — | Opt into Claude Code skill registration — see "Optional `skill_name`" below. |
 | `skill_status` | str | no | — | When the tool registers a skill, it MAY report the installed copy's freshness so the parent can suggest an update. One of `"absent"`, `"current"`, `"stale"` — see "Reporting skill freshness" below. |
+| `alias_args` | list[str] | no | (= `args`) | Args used in the bash alias only, when they should differ from `args` (e.g. an alias that auto-injects `--clip`). |
+| `capability` | str | no | — | One controlled word naming what the tool does (`scrape`, `tts`, `agent`, …). Parents that group rows use this as the group key — see "Taxonomy" below. |
+| `domain` | str | no | — | Free distinguisher inside a `capability` (`youtube`, `embedding`). |
+| `category` | str | no | — | Legacy provenance: the folder the tool came from. Nothing keys on it; new tools may omit it. |
+
+All of these are fields of `ToolMetadata`, and `advertise()` emits each optional
+one only when it is set. A record that never touched them is byte-identical to
+a pre-0.2.0 record, so a parent from either era reads it.
+
+## Taxonomy (`capability` / `domain` / `category`)
+
+`tags` say how a tool *installs* (GUI, CLI, Icon). `capability` says what it
+*does*, in one flat controlled word, and is the field a parent installer groups
+by — every `agent`, every `tts`, in one cluster regardless of folder. The
+vocabulary is owned by the tree, not by this library: the reference list is
+`CAPABILITY_VOCAB` in the `tools` monorepo's `validate_structure.py`, and a tree
+that adds a word does so deliberately in the same change. Sub-entries of a
+multi-variant tool share the parent's `capability`. "Registers a skill" is not
+a capability.
 
 ## Tags
 
@@ -216,6 +235,16 @@ When a tool reports `"stale"`, a compliant parent flags the row (e.g.
 `--install-skill` on apply to refresh the skill in place. Tools that omit
 `skill_status` keep the old behaviour — the installer only distinguishes
 installed-vs-absent.
+
+## Known dialect: system-script menus
+
+`prob_ubuntu_environment/main.py` reuses the `--advertise` *word* for a
+different contract and is **not** a consumer of this protocol: scripts are bash
+or Python, the probe returns a single dict (a list is tolerated, first element
+wins), the record carries a `sudo` bool and free-form tags such as `update` or
+`destructive`, the timeout is 3 s, and the parent *runs* scripts instead of
+installing them. Do not point a compliant parent at that tree, and do not expect
+its scripts to answer a compliant probe.
 
 ## When reinstallation is required
 

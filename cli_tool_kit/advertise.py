@@ -66,6 +66,12 @@ def advertise(metadata: Union[ToolMetadata, List[ToolMetadata]]) -> NoReturn:
             record["alias"] = m.alias or os.path.splitext(m.desktop_file)[0]
             if m.alias_args is not None:
                 record["alias_args"] = list(m.alias_args)
+        # Optional fields are emitted only when set, so a tool that never
+        # touched them produces exactly the pre-0.2.0 record.
+        for key in ("capability", "domain", "category", "skill_name", "skill_status"):
+            value = getattr(m, key, None)
+            if value:
+                record[key] = value
         out.append(record)
     print(json.dumps(out))
     sys.exit(0)

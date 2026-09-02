@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.1.1
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.0
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.1.1
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.0
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -157,6 +157,19 @@ different shapes, which is what the configuration surface reflects:
 pip install -e ".[dev]"
 pytest
 ```
+
+## Used by
+
+Consumers, each a self-installing tool that answers `--advertise`:
+
+- [`studon-client`](https://github.com/Probst1nator/studon-client) — `ToolInstaller` + `CronInstaller` + a Claude Code skill
+- [`BlogGen`](https://github.com/AutomatedAlchemy/BlogGen) — install machinery falls back gracefully when the kit is absent
+- [`lernclaude`](https://github.com/Probst1nator/lernclaude) — same pattern
+- [`manim-kit`](https://github.com/AutomatedAlchemy/manim-kit) — reports `skill_status`
+
+Two parent installers built on `gui_installer` are private (a `tools_*/<tool>/main.py`
+monorepo and a flat tree bootstrapped from a `repos.json` cache); a third walks a
+lab-tools tree and gives each tool its own venv.
 
 ## License
 

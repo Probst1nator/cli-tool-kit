@@ -243,3 +243,37 @@ def test_alias_falls_back_to_args_when_alias_args_unset(sandbox_home: Path) -> N
     assert "--mode fast" in aliases
     data = installer.get_advertise_data()[0]
     assert "alias_args" not in data  # only surfaced when explicitly set
+
+
+def test_advertise_emits_taxonomy_and_skill_fields_only_when_set(capsys) -> None:
+    """capability/domain/category/skill_name/skill_status ride along in the
+    record when set, and are absent (not null) when not."""
+    import json
+    import pytest
+    from cli_tool_kit import advertise
+
+    with pytest.raises(SystemExit):
+        advertise(ToolMetadata(
+            name="Z",
+            desktop_file="z.desktop",
+            icon="z",
+            desc="z",
+            tags=["CLI"],
+            alias="z",
+            capability="scrape",
+            domain="youtube",
+            skill_name="search-youtube",
+            skill_status="current",
+        ))
+    rec = json.loads(capsys.readouterr().out)[0]
+    assert rec["capability"] == "scrape"
+    assert rec["domain"] == "youtube"
+    assert rec["skill_name"] == "search-youtube"
+    assert rec["skill_status"] == "current"
+    assert "category" not in rec
+
+    with pytest.raises(SystemExit):
+        advertise(ToolMetadata(name="W", desktop_file="w.desktop", icon="w", desc="w"))
+    rec = json.loads(capsys.readouterr().out)[0]
+    for key in ("capability", "domain", "category", "skill_name", "skill_status"):
+        assert key not in rec

@@ -51,6 +51,17 @@ class ToolMetadata:
     tags: Optional[list] = None  # Capability tags: GUI, CLI, Icon (default: ["GUI", "Icon"])
     alias: Optional[str] = None  # Custom alias name for non-Icon tools (defaults to desktop_file stem)
     alias_args: Optional[list] = None  # Override args used in the bash alias only; falls back to `args` if unset. Lets a tool's alias auto-inject a flag (e.g. --clip) without leaking it into --install invocations.
+    # Taxonomy (PROTOCOL.md § Taxonomy). `capability` is the one controlled word a
+    # parent installer groups rows by; `domain` a free distinguisher inside it;
+    # `category` legacy provenance (the folder of origin). All optional.
+    capability: Optional[str] = None
+    domain: Optional[str] = None
+    category: Optional[str] = None
+    # Claude Code skill registration (PROTOCOL.md § Optional skill_name).
+    # `skill_status` is "absent" | "current" | "stale"; compute it with
+    # cli_tool_kit.skill_status() at advertise time and pass it in.
+    skill_name: Optional[str] = None
+    skill_status: Optional[str] = None
 
 
 class ToolInstaller:
