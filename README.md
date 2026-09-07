@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.0
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.1
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.0
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.1
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
