@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.1
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.1
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -108,50 +108,141 @@ Each managed line gets a trailing `# cli-tool-kit:<marker>` comment.
 Re-installing the same lines is a no-op; other tools' cron entries are
 untouched.
 
-## GUI installer engine
+## Reusing the installer in your org
 
 `cli_tool_kit.gui_installer` is a batteries-included tkinter installer that any
-project tree can reuse instead of forking. A wrapper is a few lines:
+tool tree can reuse instead of forking. Point it at your tree and it discovers
+every tool that answers `--advertise`, then installs or removes each one's
+desktop entry, shell alias and Claude Code skill.
+
+**Start here:**
+
+```bash
+cd /path/to/your/tools
+python3 -m cli_tool_kit
+```
+
+That prints a brief you can paste into your coding agent (Claude Code or
+similar); the agent interviews you for the handful of naming decisions and
+writes the wrapper. `--interactive` answers the same questions on the command
+line instead, and `--print-wrapper` just prints the skeleton. A complete
+worked example — wrapper plus a tool — is in
+[`examples/org-installer/`](examples/org-installer/).
+
+### Identity: what your installer claims on a host
+
+Several organisations' installers can share a machine, so yours needs a name of
+its own. `InstallerIdentity` derives every per-host artifact from one slug:
 
 ```python
-# my-project/installer.py
-import os, sys
+# my-org-tools/installer.py
+import os
+from cli_tool_kit import InstallerIdentity
 from cli_tool_kit.gui_installer import run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
 if __name__ == "__main__":
-    run(root_dir=HERE, entry_script=__file__)   # GUI default; --list/--check/... too
+    run(
+        identity=InstallerIdentity(slug="acme-tools", title="Acme Tools"),
+        root_dir=HERE,
+        entry_script=__file__,
+    )
 ```
 
-`run(...)` (and the bare module-level config globals it sets) take everything a
-tree might differ on: `discoverer` (how to find entry points — defaults to the
-`tools_*/<tool>/main.py` layout, other layouts pass their own), `group_by`
-(`"capability"`, the default, or `"category"` to band the rows by the label the
-discoverer assigned), `pre_discovery` (a hook to bootstrap/clone
-repos before scanning; skipped on the login-check path so a login hook never
-touches the network), `check_reconcile_shortcuts` (set `False` for a tree whose
-`--install` has login-unsafe side effects, making `--check` skill-only), and the
-window title / desktop-file / WM-class / autostart-name identities so several
-installers coexist on one host.
+| Derived from `slug="acme-tools"` | Value |
+|---|---|
+| config + icon overrides | `~/.config/acme-tools/` |
+| shell aliases | `~/.acme_tools_aliases` |
+| icon cache | `~/.cache/acme-tools/` |
+| the manager's own shortcut | `acme-tools-installer.desktop` |
+| WM class | `acme_tools_installer` |
+| login-check artifacts | `acme-tools-check.{desktop,log,json}` |
+| `.desktop` marker | `Keywords=acme-tools;ai;tool;` |
 
-The GUI needs Pillow for icon thumbnails — install the extra:
+That last one matters most: it is how the installer's orphan sweeper decides a
+shortcut is *its* shortcut. With distinct markers, two organisations' installers
+never delete each other's entries. Every derived name can be overridden with the
+matching `InstallerIdentity` field (`config_dir`, `aliases_file`, `wm_class`, …).
+
+**Passing no identity selects the historical first-party names**, so existing
+installs are untouched by an upgrade. Running the engine bare — no identity, no
+wrapper — stops and offers setup rather than claiming those names.
+
+### `run()`
+
+Keyword-only; every argument defaults to `None`, meaning "leave the default".
+
+| Argument | Default | What it does |
+|---|---|---|
+| `identity` | `LEGACY_IDENTITY` | The names above. The one argument a third party should always pass. |
+| `root_dir` | cwd | The tree to manage. Discovery, `.env` loading and the self-shortcut's `Path=` all anchor here. |
+| `entry_script` | this module | The script the manager shortcut and the login-check autostart entry launch. Pass `__file__` so they re-enter your wrapper, not the bare engine. |
+| `discoverer` | flat + `tools_*/` walk | `callable(root) -> [(entry_point_path, category), …]`. Pass your own for a differently shaped tree. |
+| `discovery_roots` | `[root_dir]` | Scan these directories instead — for tools that live in a subdirectory or several. |
+| `group_by` | `"capability"` | Which field bands the GUI rows: `"capability"` (the advertised word) or `"category"` (whatever your discoverer assigned). Anything else raises `ValueError`. |
+| `pre_discovery` | `None` | `callable(refresh: bool)` run once before scanning, for side effects like cloning repos into a cache. Skipped on the `--check` path so a login hook never touches the network. |
+| `check_reconcile_shortcuts` | `True` | Whether `--check` also reinstalls drifted shortcuts. Set `False` when your tools' `--install` has side effects unsafe for a login hook, making `--check` skill-only. |
+| `window_title` | identity's title | GUI window title. |
+| `self_desktop_file`, `self_desktop_name`, `self_desktop_icon` | identity's | The manager's own shortcut. |
+| `wm_class` | identity's | `StartupWMClass` for window-manager grouping. |
+| `notify_app` | identity's | `notify-send` application label on the `--check` path. |
+| `autostart_check_desktop_name`, `check_log_name`, `check_state_name` | identity's | Login-check artifact filenames. |
+
+The identity is applied first and these individual names override it, so you can
+take the whole namespace from a slug and still change one thing.
+
+`run()` owns its own `argparse` and consumes `sys.argv`: `--list`, `--check`,
+`--enable-autostart-check`, `--install`, `--update-all`, `--cleanup`, and the
+GUI when given none of them. A wrapper that needs its own subcommands should
+skip `run()` and call the primitives (`discover_tools`, `install_tool`,
+`remove_tool`, `cli_check`) after applying an identity with `_apply_identity`.
+
+### Discovering your tools
+
+The default discoverer accepts two layouts, and a tree may mix them:
+
+- **flat** — `<root>/<tool>/main.py` (plus `requirements.txt`). Category empty,
+  so rows band by each tool's advertised `capability`.
+- **nested** — `<root>/tools_<category>/<tool>/main.py`, where the folder
+  supplies the category label.
+
+Directories starting with `_` or `.` are skipped. Anything else: pass a
+`discoverer`. If an expected tool does not appear, its `--advertise` is the
+thing to fix — it must print JSON and exit *before* any heavy import, or it
+trips the 5-second probe timeout. See [`PROTOCOL.md`](PROTOCOL.md).
+
+### Grouping rows by meaning
+
+`group_by="capability"` bands rows by the one word each tool advertises. Once a
+tree outgrows that, `cli_tool_kit.taxonomy` reads what the tree already
+documents about itself and produces a small set of named categories:
+
+```python
+from cli_tool_kit.taxonomy import ensure_groups
+
+def discover(root):
+    groups = ensure_groups(root)          # {tool_name: band label}
+    return [(entry, groups.get(name, "")) for entry, name in my_walk(root)]
+```
+
+It fingerprints every `CLAUDE.md`/`README.md` in the tree and rebuilds only when
+one changed (content hashes, not mtimes — a sync checkout restamps mtimes).
+Three tiers, tried in order so it degrades rather than failing: an LLM naming
+and filling the categories (Gemini via `GEMINI_API_KEY`, else a local LM Studio
+/ Ollama server), else the advertised capability words banded into a fixed six,
+else embedding + k-means. Nothing configured means tier two, which is instant
+and needs no network.
+
+### The GUI extra
+
+Icon thumbnails need Pillow:
 
 ```bash
-pip install "cli-tool-kit[gui]"
+pip install "cli-tool-kit[gui] @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2"
 ```
 
-Installing the package also exposes a `cli-tool-installer` console script that
-runs the engine against the current working directory.
-
-### Consumer patterns
-
-The engine is exercised daily by two (private) tool trees with deliberately
-different shapes, which is what the configuration surface reflects:
-
-- a monorepo with a `tools_*/<tool>/main.py` layout (the default discoverer),
-- a flat tree of independent repos bootstrapped from a `repos.json` cache via
-  the `pre_discovery` hook, with a skill-only, network-free login check
-  (`check_reconcile_shortcuts = False`).
+Installing the package also exposes a `cli-tool-installer` console script.
 
 ## Tests
 

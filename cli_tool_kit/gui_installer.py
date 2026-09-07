@@ -30,6 +30,12 @@ advertised ``capability`` (default) or by the ``category`` the discoverer
 assigned.
 """
 
+# Annotations are deferred so the module imports without Pillow. Several
+# signatures mention ImageTk/Image, which are None when Pillow is absent;
+# evaluating them at def time made "pip install cli-tool-kit" (no [gui]
+# extra) fail at import, despite the icon code degrading fine at runtime.
+from __future__ import annotations
+
 import os
 import sys
 import subprocess
@@ -43,6 +49,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, NamedTuple, Optional
+
+from .identity import InstallerIdentity, LEGACY_IDENTITY
 
 # Pillow renders tool icons. It is an optional extra (``cli-tool-kit[gui]``);
 # without it the GUI still runs, just without per-tool icon thumbnails, and the
@@ -135,9 +143,18 @@ def _load_env() -> None:
 _load_env()
 
 APPS_DIR = os.path.join(os.path.expanduser("~"), ".local", "share", "applications")
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "tools-installer")
-CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
-CUSTOM_ICONS_DIR = os.path.join(CONFIG_DIR, "icons")  # Custom tool icons
+
+# IDENTITY — who this installer is on the host: the .desktop marker it claims,
+# and where its config, icon overrides, alias file and cache live. Defaults to
+# the historical first-party names so an existing install is untouched; a third
+# party passes run(identity=InstallerIdentity(slug="acme-tools")) and gets its
+# own namespace for all of it. See identity.py and README § Reusing the
+# installer in your org.
+IDENTITY: InstallerIdentity = LEGACY_IDENTITY
+
+CONFIG_DIR = IDENTITY.config_path
+CONFIG_FILE = IDENTITY.config_file
+CUSTOM_ICONS_DIR = IDENTITY.icons_dir  # Custom tool icons
 CLAUDE_SKILLS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "skills")
 
 # Runtime config — overridable by thin wrappers that re-use this module as a
@@ -145,7 +162,7 @@ CLAUDE_SKILLS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "skills")
 # import this module, mutate these globals (or pass them to run()), then launch.
 # All defaults match the historical tools/installer.py behavior, so this module
 # stays runnable standalone.
-WINDOW_TITLE = "probable.work - Tools Installer"
+WINDOW_TITLE = IDENTITY.display_title
 DISCOVERY_ROOTS: List[str] = []   # Set lazily in discover_tools() to [ROOT_DIR] if empty.
 DISCOVERER: Optional[Callable] = None  # callable(root) -> List[(entry_point_path, category)].
                                    # When None, the default tools_* / main.py walk is used.
@@ -175,17 +192,17 @@ CHECK_RECONCILE_SHORTCUTS = True
 
 # Identity of the login update-check artifacts. Distinct names let several
 # wrappers' autostart entries / logs / state files coexist on one host.
-AUTOSTART_CHECK_DESKTOP_NAME = "tools-installer-check.desktop"
-CHECK_LOG_NAME = "tools-installer-check.log"
-CHECK_STATE_NAME = "tools-installer-check.json"
+AUTOSTART_CHECK_DESKTOP_NAME = IDENTITY.check_desktop
+CHECK_LOG_NAME = IDENTITY.check_log
+CHECK_STATE_NAME = IDENTITY.check_state
 
 # Identity of the manager's OWN desktop shortcut (cli_install_self) and GUI
 # window, so two installers' app entries / WM classes don't collide.
-SELF_DESKTOP_FILE = "ai_tools_manager.desktop"
-SELF_DESKTOP_NAME = "Tools Installer"
-SELF_DESKTOP_ICON = "system-software-install"  # icon name (freedesktop) or absolute path
-WM_CLASS = "tools_installer"
-NOTIFY_APP = "Tools Installer"  # notify-send application label on the --check path
+SELF_DESKTOP_FILE = IDENTITY.self_desktop_file
+SELF_DESKTOP_NAME = IDENTITY.self_desktop_name
+SELF_DESKTOP_ICON = IDENTITY.icon  # icon name (freedesktop) or absolute path
+WM_CLASS = IDENTITY.self_wm_class
+NOTIFY_APP = IDENTITY.notify_label  # notify-send application label on the --check path
 
 
 def _skill_installed(skill_name: str) -> bool:
@@ -420,7 +437,7 @@ EMOJI_LIST = _build_emoji_list()
 
 def _get_emoji_cache_dir():
     """Get/create emoji icon cache directory."""
-    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "tools-installer", "emoji_icons")
+    cache_dir = os.path.join(IDENTITY.cache_path, "emoji_icons")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
 
@@ -618,29 +635,45 @@ def get_metadata_native(file_path: str, category: str) -> List[ToolEntry]:
 
     return entries
 
-def _default_tools_discoverer(root: str) -> List[tuple]:
-    """Discoverer for the tools_*/<tool>/main.py + requirements.txt layout.
+def _is_tool_dir(path: str) -> bool:
+    """A directory is a tool when it holds both main.py and requirements.txt."""
+    return (os.path.isfile(os.path.join(path, "main.py"))
+            and os.path.isfile(os.path.join(path, "requirements.txt")))
 
-    This is only the default; a wrapper can pass its own discoverer for a flat
-    or otherwise-shaped tree. Returns a list of (entry_point_path, category)
-    tuples, where category is the folder label with the "tools_" prefix dropped.
+
+def _default_tools_discoverer(root: str) -> List[tuple]:
+    """Find tools in either standard layout, returning (entry_point, category).
+
+    Two shapes are recognised, and a tree may mix them:
+
+    * **flat** — ``<root>/<tool>/main.py``. The common case, and what a new
+      organisation gets by default. Category is empty, so rows band by each
+      tool's advertised ``capability``.
+    * **nested** — ``<root>/tools_<category>/<tool>/main.py``. The original
+      layout, where the folder supplies the category label.
+
+    Directories starting with "_" or "." are skipped in both (``_shared``,
+    ``_archive``, ``.git``). A wrapper with a different shape passes its own
+    ``discoverer``; see README § Reusing the installer in your org.
     """
     found = []
     if not os.path.isdir(root):
         return found
     for item in sorted(os.listdir(root)):
         item_path = os.path.join(root, item)
-        if not (os.path.isdir(item_path) and item.startswith("tools_")):
+        if not os.path.isdir(item_path) or item.startswith(("_", ".")):
             continue
-        category = item.replace("tools_", "").title()
-        for sub_item in sorted(os.listdir(item_path)):
-            sub_path = os.path.join(item_path, sub_item)
-            if not (os.path.isdir(sub_path) and not sub_item.startswith("_")):
-                continue
-            entry_point = os.path.join(sub_path, "main.py")
-            req_file = os.path.join(sub_path, "requirements.txt")
-            if os.path.exists(entry_point) and os.path.exists(req_file):
-                found.append((entry_point, category))
+
+        if item.startswith("tools_"):
+            category = item.replace("tools_", "").title()
+            for sub_item in sorted(os.listdir(item_path)):
+                sub_path = os.path.join(item_path, sub_item)
+                if not os.path.isdir(sub_path) or sub_item.startswith(("_", ".")):
+                    continue
+                if _is_tool_dir(sub_path):
+                    found.append((os.path.join(sub_path, "main.py"), category))
+        elif _is_tool_dir(item_path):
+            found.append((os.path.join(item_path, "main.py"), ""))
     return found
 
 
@@ -693,7 +726,7 @@ def discover_tools(run_pre: bool = True) -> List[ToolEntry]:
             )
     return tools
 
-ALIASES_FILE = os.path.join(os.path.expanduser("~"), ".tools_aliases")
+ALIASES_FILE = IDENTITY.aliases_path
 AUTOSTART_DIR = os.path.join(os.path.expanduser("~"), ".config", "autostart")
 
 # --- Login update-check autostart -----------------------------------------
@@ -710,6 +743,34 @@ CHECK_LOG = os.path.join(os.path.expanduser("~"), ".local", "log", CHECK_LOG_NAM
 # Remembers the last actionable (new tool / new skill / failure) set so the
 # login check notifies once when it CHANGES instead of nagging every login.
 CHECK_STATE = os.path.join(os.path.expanduser("~"), ".local", "state", CHECK_STATE_NAME)
+
+
+def _apply_identity(identity: InstallerIdentity) -> None:
+    """Point every per-host artifact at the given identity.
+
+    Called by run(identity=...) before the explicit name kwargs, so a wrapper
+    can take the whole namespace from a slug and still override one name.
+    """
+    global IDENTITY, CONFIG_DIR, CONFIG_FILE, CUSTOM_ICONS_DIR, ALIASES_FILE
+    global WINDOW_TITLE, SELF_DESKTOP_FILE, SELF_DESKTOP_NAME, SELF_DESKTOP_ICON
+    global WM_CLASS, NOTIFY_APP
+    global AUTOSTART_CHECK_DESKTOP_NAME, CHECK_LOG_NAME, CHECK_STATE_NAME
+
+    IDENTITY = identity
+    CONFIG_DIR = identity.config_path
+    CONFIG_FILE = identity.config_file
+    CUSTOM_ICONS_DIR = identity.icons_dir
+    ALIASES_FILE = identity.aliases_path
+    WINDOW_TITLE = identity.display_title
+    SELF_DESKTOP_FILE = identity.self_desktop_file
+    SELF_DESKTOP_NAME = identity.self_desktop_name
+    SELF_DESKTOP_ICON = identity.icon
+    WM_CLASS = identity.self_wm_class
+    NOTIFY_APP = identity.notify_label
+    AUTOSTART_CHECK_DESKTOP_NAME = identity.check_desktop
+    CHECK_LOG_NAME = identity.check_log
+    CHECK_STATE_NAME = identity.check_state
+    _recompute_check_paths()
 
 
 def _recompute_check_paths() -> None:
@@ -888,6 +949,11 @@ def install_tool(tool: ToolEntry, skip_deps: bool = False) -> tuple[bool, str]:
     try:
         cmd = [sys.executable, tool.script_path, "--install"] + tool.args
         env = os.environ.copy()
+        # The tool writes its own .desktop and alias via ToolInstaller, so it
+        # needs to know which installer asked — otherwise a third-party org's
+        # tools get branded with the first-party marker and land in the
+        # first-party alias file.
+        env.update(IDENTITY.env())
         if skip_deps:
             env["TOOLS_INSTALLER_SKIP_DEPS"] = "1"
         result = subprocess.run(cmd, cwd=os.path.dirname(tool.script_path),
@@ -904,8 +970,10 @@ def remove_tool(tool: ToolEntry) -> tuple[bool, str]:
     """Invokes the tool's own --remove argument. Returns (success, output)."""
     try:
         cmd = [sys.executable, tool.script_path, "--remove"] + tool.args
+        env = os.environ.copy()
+        env.update(IDENTITY.env())   # remove the alias from OUR alias file
         result = subprocess.run(cmd, cwd=os.path.dirname(tool.script_path),
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, env=env)
         output = (result.stdout + result.stderr).strip()
         if result.returncode == 0:
             return True, output
@@ -976,7 +1044,9 @@ class OrphanAlias(NamedTuple):
 def find_orphan_desktop_files() -> List[OrphanDesktopFile]:
     """Find .desktop files from this installer whose tools no longer exist.
 
-    Identifies our desktop files by the marker: Keywords=probable.work;ai;tool;
+    Identifies our desktop files by the identity marker, e.g. the default
+    Keywords=probable.work;ai;tool; — a third-party org's installer carries its
+    own slug there and so never sweeps another org's shortcuts.
     Then checks if the Path= directory (or script from Exec=) still exists.
 
     Several installer trees (tools/, AutomatedAlchemy/, …) can coexist on one
@@ -1011,7 +1081,7 @@ def find_orphan_desktop_files() -> List[OrphanDesktopFile]:
             with open(desktop_path, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    if 'Keywords=' in line and 'probable.work' in line and 'ai' in line and 'tool' in line:
+                    if 'Keywords=' in line and IDENTITY.marker_token in line and 'ai' in line and 'tool' in line:
                         is_ours = True
                         if 'installer-self' in line:
                             is_installer_self = True
@@ -2231,7 +2301,7 @@ class InstallerApp:
             "stale installed skills — rewritten from your synced source, never pip) "
             "and only notifies for updates that need the network (a new, "
             "not-yet-installed tool).\n\n"
-            "Log: ~/.local/log/tools-installer-check.log")
+            f"Log: {CHECK_LOG}")
 
         # "Reinstall deps" is the deliberate, network-touching pip action — kept in
         # its own group (own separator) so it reads as distinct from the local badge.
@@ -5158,7 +5228,7 @@ Path={ROOT_DIR}
 Icon={SELF_DESKTOP_ICON}
 Terminal=false
 Categories=Settings;Utility;
-Keywords=probable.work;ai;tool;installer-self;
+Keywords={IDENTITY.marker_token};ai;tool;installer-self;
 StartupNotify=true
 StartupWMClass={WM_CLASS}
 """
@@ -5542,7 +5612,8 @@ def main():
     root.mainloop()
 
 
-def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
+def run(*, identity: Optional[InstallerIdentity] = None,
+        root_dir: Optional[str] = None, entry_script: Optional[str] = None,
         window_title: Optional[str] = None, discovery_roots: Optional[List[str]] = None,
         discoverer: Optional[Callable] = None, group_by: Optional[str] = None,
         pre_discovery: Optional[Callable] = None,
@@ -5560,6 +5631,12 @@ def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
     own argparse (e.g. AutomatedAlchemy) can instead set the globals directly and
     call the individual primitives (discover_tools/install_tool/cli_check/...).
 
+    ``identity`` is the one argument a third-party organisation must pass. It
+    namespaces every per-host artifact (config dir, alias file, icon cache, the
+    manager's own .desktop, the WM class and the Keywords marker the orphan
+    sweeper matches on) so two organisations' installers coexist. Passing none
+    selects ``LEGACY_IDENTITY``, the historical first-party names.
+
     Standalone use (the ``cli-tool-installer`` console script) calls this with no
     args; root_dir then defaults to the current working directory.
     """
@@ -5567,6 +5644,18 @@ def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
     global PRE_DISCOVERY, CHECK_RECONCILE_SHORTCUTS
     global AUTOSTART_CHECK_DESKTOP_NAME, CHECK_LOG_NAME, CHECK_STATE_NAME
     global SELF_DESKTOP_FILE, SELF_DESKTOP_NAME, SELF_DESKTOP_ICON, WM_CLASS, NOTIFY_APP
+
+    # Identity first: it sets the whole namespace, and the individual name
+    # kwargs below still win so a wrapper can override one of them.
+    if identity is not None:
+        _apply_identity(identity)
+    elif entry_script is None and os.environ.get(InstallerIdentity.ENV_VAR, "") == "":
+        # Bare engine: no identity, no wrapper pointing at itself. Opening the
+        # GUI here would claim the first-party names on this host, so offer
+        # setup instead. A wrapper that deliberately wants the legacy names
+        # passes identity=LEGACY_IDENTITY.
+        from .onboarding import print_onboarding
+        raise SystemExit(print_onboarding(root_dir if root_dir is not None else os.getcwd()))
 
     ROOT_DIR = root_dir if root_dir is not None else os.getcwd()
     if entry_script is not None:

@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from typing import Optional, Union, List
 
+from .identity import InstallerIdentity
+
 
 _DESKTOP_FORBIDDEN = ("\n", "\r", "\x00")
 
@@ -95,6 +97,7 @@ class ToolInstaller:
         self,
         script_path: str,
         metadata: Union[ToolMetadata, List[ToolMetadata]],
+        identity: Optional[InstallerIdentity] = None,
     ):
         """Initialize the installer.
 
@@ -103,7 +106,13 @@ class ToolInstaller:
             metadata: One ToolMetadata, or a list for tools that expose
                 multiple variants (e.g. private and public launchers from
                 the same script with different --args).
+            identity: Which installer these artifacts belong to — it decides
+                the .desktop Keywords marker and which alias file the tool
+                writes into. Defaults to the identity of the parent installer
+                that spawned this --install (read from the environment), and
+                to the historical first-party names when run by hand.
         """
+        self.identity = identity if identity is not None else InstallerIdentity.from_env()
         self.script_path = os.path.abspath(script_path)
         self.script_dir = os.path.dirname(self.script_path)
         self.script_name = os.path.splitext(os.path.basename(self.script_path))[0]
@@ -231,7 +240,7 @@ Path={self.script_dir}
 Icon={metadata.icon}
 Terminal=false
 Categories={metadata.categories}
-Keywords=probable.work;ai;tool;
+Keywords={self.identity.desktop_keywords}
 StartupNotify=true
 StartupWMClass={wm_class}
 """
@@ -316,8 +325,8 @@ StartupWMClass={wm_class}
         return os.path.splitext(m.desktop_file)[0]
 
     def _get_aliases_file(self) -> str:
-        """Get path to the tools aliases file."""
-        return os.path.join(os.path.expanduser("~"), ".tools_aliases")
+        """Path to this installer's alias file (namespaced by identity)."""
+        return self.identity.aliases_path
 
     def _load_aliases(self) -> dict:
         """Load existing aliases from file. Returns dict of alias_name -> command."""
@@ -376,23 +385,30 @@ StartupWMClass={wm_class}
             True if bashrc was modified, False if already configured.
         """
         aliases_file = self._get_aliases_file()
+        marker = os.path.basename(aliases_file)
         bashrc_path = os.path.join(os.path.expanduser("~"), ".bashrc")
         source_line = f'[ -f "{aliases_file}" ] && source "{aliases_file}"'
 
-        # Check if already sourced
+        # Check if already sourced. Matched on THIS identity's alias filename,
+        # so a second org's installer adds its own line instead of seeing the
+        # first one's and concluding it is done.
         if os.path.exists(bashrc_path):
             with open(bashrc_path, "r") as f:
                 content = f.read()
                 # Check for various forms of the source line
-                if ".tools_aliases" in content:
+                if marker in content:
                     return False
 
         # Add source line to bashrc
         with open(bashrc_path, "a") as f:
-            f.write(f"\n# Tools aliases (auto-added by tools installer)\n")
+            f.write(f"\n{self._bashrc_comment()}\n")
             f.write(f"{source_line}\n")
 
         return True
+
+    def _bashrc_comment(self) -> str:
+        """The comment line that labels this installer's block in ~/.bashrc."""
+        return f"# {self.identity.notify_label} aliases (auto-added by installer)"
 
     def _remove_bashrc_source_if_empty(self) -> None:
         """Remove the source line from .bashrc if no aliases remain."""
@@ -412,14 +428,21 @@ StartupWMClass={wm_class}
         with open(bashrc_path, "r") as f:
             lines = f.readlines()
 
-        # Filter out the tools aliases lines
+        # Filter out this installer's alias block. Both the current comment
+        # and the pre-0.2.2 first-party one are recognised, so an old ~/.bashrc
+        # still gets cleaned up.
+        marker = os.path.basename(aliases_file)
+        comments = {
+            self._bashrc_comment(),
+            "# Tools aliases (auto-added by tools installer)",
+        }
         new_lines = []
         skip_next = False
         for line in lines:
-            if "# Tools aliases (auto-added by tools installer)" in line:
+            if any(c in line for c in comments):
                 skip_next = True
                 continue
-            if skip_next and ".tools_aliases" in line:
+            if skip_next and marker in line:
                 skip_next = False
                 continue
             skip_next = False
