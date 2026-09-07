@@ -61,6 +61,11 @@ that adds a word does so deliberately in the same change. Sub-entries of a
 multi-variant tool share the parent's `capability`. "Registers a skill" is not
 a capability.
 
+Grouping by `capability` is the default, not a rule: a parent installer can set
+`gui_installer.run(group_by="category")` to band its rows by the `category`
+label its own discoverer assigns instead (the `tools` monorepo does this, with a
+semantic group per tool held in a committed JSON file).
+
 ## Tags
 
 Tools declare their capabilities via `tags`:

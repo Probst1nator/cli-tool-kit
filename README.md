@@ -125,7 +125,9 @@ if __name__ == "__main__":
 
 `run(...)` (and the bare module-level config globals it sets) take everything a
 tree might differ on: `discoverer` (how to find entry points — defaults to the
-`tools_*/<tool>/main.py` layout), `pre_discovery` (a hook to bootstrap/clone
+`tools_*/<tool>/main.py` layout, other layouts pass their own), `group_by`
+(`"capability"`, the default, or `"category"` to band the rows by the label the
+discoverer assigned), `pre_discovery` (a hook to bootstrap/clone
 repos before scanning; skipped on the login-check path so a login hook never
 touches the network), `check_reconcile_shortcuts` (set `False` for a tree whose
 `--install` has login-unsafe side effects, making `--check` skill-only), and the

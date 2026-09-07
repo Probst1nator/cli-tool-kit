@@ -24,7 +24,10 @@ configuration (see the CONFIGURATION block below) which a thin wrapper sets via
 
 Standalone (``python -m cli_tool_kit.gui_installer`` / the ``cli-tool-installer``
 console script) it scans the current working directory with the default
-``tools_*/<tool>/main.py`` layout.
+``tools_*/<tool>/main.py`` layout. Other layouts are supported through the
+``discoverer`` hook, and ``group_by`` chooses whether the GUI bands rows by the
+advertised ``capability`` (default) or by the ``category`` the discoverer
+assigned.
 """
 
 import os
@@ -147,6 +150,14 @@ DISCOVERY_ROOTS: List[str] = []   # Set lazily in discover_tools() to [ROOT_DIR]
 DISCOVERER: Optional[Callable] = None  # callable(root) -> List[(entry_point_path, category)].
                                    # When None, the default tools_* / main.py walk is used.
 
+# GROUP_BY — which ToolEntry field labels the GUI's row bands. "capability" (the
+# default) clusters every agent, every tts, regardless of folder. "category" lets
+# a wrapper band by whatever label its discoverer assigned (tools/ computes a
+# semantic group from a committed JSON file). The same label is used for the
+# band headers, the search show/hide bookkeeping and expand/collapse.
+GROUP_BY: str = "capability"   # "capability" | "category"
+
+
 # PRE_DISCOVERY — optional callable(refresh: bool) -> None run once at the top of
 # discover_tools() BEFORE scanning, for side effects like cloning/pulling repos
 # into a cache (AutomatedAlchemy uses this to bootstrap repos.json checkouts).
@@ -203,6 +214,15 @@ class ToolEntry(NamedTuple):
     cron_args: List[str] = []        # Args to pass when running as cron job
     skill_name: str = ""             # If non-empty, tool can install a Claude Code skill via --install-skill / --uninstall-skill
     skill_status: str = ""           # Advertised skill freshness: "absent"|"current"|"stale" ("" = tool didn't report it)
+
+
+def _group_label(entry: "ToolEntry") -> str:
+    """The band label for a row: the GROUP_BY field of *entry*.
+
+    Everything that keys on a band (the headers, expand/collapse, the search
+    show/hide) must go through this, so all of them agree on one label.
+    """
+    return getattr(entry, GROUP_BY, "") or entry.capability
 
 
 class ToolGroup(NamedTuple):
@@ -599,9 +619,11 @@ def get_metadata_native(file_path: str, category: str) -> List[ToolEntry]:
     return entries
 
 def _default_tools_discoverer(root: str) -> List[tuple]:
-    """Default discoverer for `tools/` layout: tools_*/<tool>/main.py + requirements.txt.
+    """Discoverer for the tools_*/<tool>/main.py + requirements.txt layout.
 
-    Returns list of (entry_point_path, category) tuples.
+    This is only the default; a wrapper can pass its own discoverer for a flat
+    or otherwise-shaped tree. Returns a list of (entry_point_path, category)
+    tuples, where category is the folder label with the "tools_" prefix dropped.
     """
     found = []
     if not os.path.isdir(root):
@@ -2091,20 +2113,21 @@ class InstallerApp:
         # Make scrollable frame expand to fill canvas width
         self.scrollable_frame.columnconfigure(0, weight=1)
 
-        # Group rows by advertised `capability` (the real taxonomy), then by
-        # script_path within each capability. capability is always populated
-        # (get_metadata_native falls back to the folder label), so this never
-        # keys on "". Sorted so the cluster headers are stable across runs.
+        # Group rows by the GROUP_BY field (`capability` by default, `category`
+        # when the wrapper bands by its own label), then by script_path within
+        # each band. Both fields are always populated (get_metadata_native falls
+        # back to the folder label), so this never keys on "". Sorted so the band
+        # headers are stable across runs.
         # NB: must not reuse `t` here — it holds the theme dict for the whole
         # of _setup_ui (footer, log box and search-focus closures read it).
-        tools_by_capability: Dict[str, List[ToolEntry]] = {}
+        tools_by_group: Dict[str, List[ToolEntry]] = {}
         for entry in self.tools:
-            tools_by_capability.setdefault(entry.capability, []).append(entry)
+            tools_by_group.setdefault(_group_label(entry), []).append(entry)
 
-        # Convert to groups within each capability cluster
+        # Convert to groups within each band
         categories: Dict[str, List[ToolGroup]] = {}
-        for capability in sorted(tools_by_capability):
-            categories[capability] = group_tools(tools_by_capability[capability])
+        for group_label in sorted(tools_by_group):
+            categories[group_label] = group_tools(tools_by_group[group_label])
 
         self.expand_vars: Dict[str, tk.BooleanVar] = {}  # Track expanded state
         self.children_frames: Dict[str, ttk.Frame] = {}  # Track child frames for show/hide
@@ -3643,16 +3666,17 @@ class InstallerApp:
             icon_label.configure(image="", text="[?]")
 
     def _get_tool_usage_key(self, tool: ToolEntry) -> str:
-        """Get the usage tracking key for a tool based on its script path.
+        """Get the usage tracking key for a tool: its directory name.
 
-        The tracker stores keys as "Category_dirname" where dirname is the
-        tool's directory name (e.g., "Developing_commit_generator").
+        The key must stay stable across regroupings, so it is the tool's own
+        directory name alone (e.g. "commit_generator"). It used to be
+        "<Category>_<dirname>", but category is now a regroupable semantic label
+        rather than a fixed folder, so it can no longer be part of the identity.
+        The tracker merges legacy "<Category>_<dirname>" rows on read.
         """
-        # script_path: /path/to/tools_developing/commit_generator/main.py
-        # We want the directory name (commit_generator)
+        # script_path: /path/to/commit_generator/main.py -> commit_generator
         tool_dir = os.path.dirname(tool.script_path)
-        dirname = os.path.basename(tool_dir)
-        return f"{tool.category}_{dirname}"
+        return os.path.basename(tool_dir)
 
     def _format_desc_with_alias(self, tool: ToolEntry) -> str:
         """Format tool description with alias hint for CLI tools."""
@@ -3892,9 +3916,9 @@ class InstallerApp:
             container.grid(row=current_row, column=0, sticky="ew")
             self._render_tool_row(parent, container)
             self.tool_group_data.append({
-                # group label = capability; must match the capability-keyed
-                # category_widgets so search show/hide targets the right header.
-                'category': parent.capability,
+                # Band label — must match the key used for category_widgets so
+                # search show/hide targets the right header.
+                'category': _group_label(parent),
                 'always_frames': [container],
                 'expand_frame': None,
                 'expand_key': None,
@@ -4041,8 +4065,8 @@ class InstallerApp:
         expand_icon.bind("<Button-1>", lambda e: toggle_expand())
 
         self.tool_group_data.append({
-            # group label = capability (see single-tool branch above).
-            'category': parent.capability,
+            # Band label (see single-tool branch above).
+            'category': _group_label(parent),
             'always_frames': [parent_container],
             'expand_frame': children_frame,
             'expand_key': group_key,
@@ -5520,7 +5544,8 @@ def main():
 
 def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
         window_title: Optional[str] = None, discovery_roots: Optional[List[str]] = None,
-        discoverer: Optional[Callable] = None, pre_discovery: Optional[Callable] = None,
+        discoverer: Optional[Callable] = None, group_by: Optional[str] = None,
+        pre_discovery: Optional[Callable] = None,
         check_reconcile_shortcuts: Optional[bool] = None,
         autostart_check_desktop_name: Optional[str] = None,
         check_log_name: Optional[str] = None, check_state_name: Optional[str] = None,
@@ -5538,7 +5563,7 @@ def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
     Standalone use (the ``cli-tool-installer`` console script) calls this with no
     args; root_dir then defaults to the current working directory.
     """
-    global ROOT_DIR, ENTRY_SCRIPT, WINDOW_TITLE, DISCOVERY_ROOTS, DISCOVERER
+    global ROOT_DIR, ENTRY_SCRIPT, WINDOW_TITLE, DISCOVERY_ROOTS, DISCOVERER, GROUP_BY
     global PRE_DISCOVERY, CHECK_RECONCILE_SHORTCUTS
     global AUTOSTART_CHECK_DESKTOP_NAME, CHECK_LOG_NAME, CHECK_STATE_NAME
     global SELF_DESKTOP_FILE, SELF_DESKTOP_NAME, SELF_DESKTOP_ICON, WM_CLASS, NOTIFY_APP
@@ -5552,6 +5577,11 @@ def run(*, root_dir: Optional[str] = None, entry_script: Optional[str] = None,
         DISCOVERY_ROOTS = discovery_roots
     if discoverer is not None:
         DISCOVERER = discoverer
+    if group_by is not None:
+        if group_by not in ("capability", "category"):
+            raise ValueError(
+                f"group_by must be 'capability' or 'category', got {group_by!r}")
+        GROUP_BY = group_by
     if pre_discovery is not None:
         PRE_DISCOVERY = pre_discovery
     if check_reconcile_shortcuts is not None:
