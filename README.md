@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.1
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.2
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.1
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.2
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -225,6 +225,15 @@ session = SkillTarget(
 )
 run(identity=IDENTITY, root_dir=HERE, entry_script=__file__,
     skill_targets=[claude_target(), session])
+```
+
+Without any screen, `--apply NAMES` installs the named tools (aliases, or
+`all`) and their skills, `--skill-target KEYS` says where the skills go
+(`claude`, a wrapper's own keys, or `none`). This is what a coding agent runs
+when it sets a machine up from a pasted prompt:
+
+```bash
+./installer.py --apply xrdlab,cifsearch --skill-target claude,fauclaude
 ```
 
 The screen calls the engine's `install_tool` / `remove_tool` / skill functions

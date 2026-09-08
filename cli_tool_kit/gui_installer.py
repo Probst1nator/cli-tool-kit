@@ -5562,6 +5562,13 @@ def main():
     parser.add_argument("--refresh", action="store_true",
                         help="Before discovery, run the configured PRE_DISCOVERY hook in refresh "
                              "mode (e.g. ff-only pull every known repo checkout). No-op without a hook.")
+    parser.add_argument("--apply", metavar="NAMES",
+                        help="Headless install: a comma-separated list of tool aliases/names, "
+                             "or 'all'. Tools not listed are left alone. Skills go to the "
+                             "targets in --skill-target.")
+    parser.add_argument("--skill-target", metavar="KEYS", default="claude",
+                        help="With --apply: comma-separated skill target keys "
+                             "(default 'claude'; 'none' installs no skills).")
     screen = parser.add_mutually_exclusive_group()
     screen.add_argument("--tui", action="store_true",
                         help="Open the text screen (curses) instead of the tkinter window. "
@@ -5609,6 +5616,11 @@ def main():
     if args.update_all:
         cli_update_all(tools)
         return
+
+    if args.apply:
+        from . import tui_installer
+        sys.exit(tui_installer.apply_headless(tools, args.apply, args.skill_target,
+                                              targets=SKILL_TARGETS))
 
     if args.list:
         print(f"\nDiscovered {len(tools)} tools:\n" + "="*60)

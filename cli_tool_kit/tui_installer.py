@@ -214,6 +214,54 @@ def summary(result: Dict[str, object]) -> str:
     return ", ".join(parts) if parts else "nothing to do"
 
 
+# --- headless apply -----------------------------------------------------------
+
+def _matches(tool: ToolEntry, name: str) -> bool:
+    name = name.strip().lower()
+    return name in {tool.alias.lower(), tool.name.lower(), tool.skill_name.lower(),
+                    tool.desktop_file.lower().removesuffix(".desktop"),
+                    os.path.basename(os.path.dirname(tool.script_path)).lower()}
+
+
+def apply_headless(tools: List[ToolEntry], names: str, target_keys: str = "claude",
+                   targets: Optional[List[SkillTarget]] = None) -> int:
+    """``--apply NAMES [--skill-target KEYS]``: install the named tools and their
+    skills without a screen. Tools not named are left as they are. Returns 0,
+    1 on errors, 2 on an unknown name."""
+    targets = list(targets) if targets else [claude_target()]
+    wanted = [n.strip() for n in names.split(",") if n.strip()]
+    if wanted == ["all"]:
+        chosen = list(tools)
+    else:
+        chosen = []
+        for name in wanted:
+            hits = [t for t in tools if _matches(t, name)]
+            if not hits:
+                known = ", ".join(sorted({t.alias or t.name for t in tools}))
+                print(f"Unknown tool '{name}'. Known: {known}", file=sys.stderr)
+                return 2
+            chosen.extend(h for h in hits if h not in chosen)
+    keys = {k.strip() for k in target_keys.split(",") if k.strip()} - {"none"}
+    unknown = keys - {t.key for t in targets}
+    if unknown:
+        print(f"Unknown skill target(s) {sorted(unknown)}. Known: "
+              f"{[t.key for t in targets]}", file=sys.stderr)
+        return 2
+    rows = [Row(t, True, bool(t.skill_name) and bool(keys)) for t in chosen]
+    steps = plan(rows, targets, keys)
+    if not steps:
+        print("Nothing to do: already installed.")
+        return 0
+    result = execute(steps, print)
+    print(f"Done: {summary(result)}.")
+    hint = result.get("hint")
+    if hint:
+        print(f"Run: {hint}")
+    elif result.get("install") or result.get("update"):
+        print("Open a new shell, or run: source ~/.bashrc")
+    return 1 if result.get("errors") else 0
+
+
 # --- the screen ---------------------------------------------------------------
 
 @dataclass

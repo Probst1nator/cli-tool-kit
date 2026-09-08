@@ -128,3 +128,31 @@ def test_execute_counts_and_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["hint"] == "source ~/.bashrc"
     assert "boom" in " ".join(log)
     assert tui.summary(result) == "1 installed, 1 skills written, 1 errors"
+
+
+# --- apply_headless ---------------------------------------------------------
+
+def test_apply_headless_installs_named_tools(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    _fake_host(monkeypatch, installed=[])
+    done: List[str] = []
+    monkeypatch.setattr(gi, "install_tool", lambda t, skip_deps=False: (done.append(t.name), (True, ""))[1])
+    monkeypatch.setattr(gi, "refresh_desktop_database", lambda: None)
+    fau = _target("fauclaude", have=[])
+    tools = [_tool("a", skill="a"), _tool("b", skill="b"), _tool("c")]
+    rc = tui.apply_headless(tools, "a, c", "fauclaude", targets=[_target("claude", have=[]), fau])
+    assert rc == 0 and done == ["a", "c"]
+    assert "Skill a -> fauclaude" in capsys.readouterr().out
+
+
+def test_apply_headless_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_host(monkeypatch, installed=[])
+    assert tui.apply_headless([_tool("a")], "zzz") == 2
+    assert tui.apply_headless([_tool("a")], "a", "nowhere") == 2
+
+
+def test_apply_headless_none_skips_skills(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    _fake_host(monkeypatch, installed=[])
+    monkeypatch.setattr(gi, "install_tool", lambda t, skip_deps=False: (True, ""))
+    monkeypatch.setattr(gi, "refresh_desktop_database", lambda: None)
+    assert tui.apply_headless([_tool("a", skill="a")], "all", "none", targets=[_target("claude", have=[])]) == 0
+    assert "Skill" not in capsys.readouterr().out
