@@ -2072,7 +2072,7 @@ class InstallerApp:
         title_frame = ttk.Frame(main_container)
         title_frame.grid(row=0, column=0, pady=(0, 10), sticky="ew")
 
-        ttk.Label(title_frame, text="Tools Collection", style="Title.TLabel").pack(side="left")
+        ttk.Label(title_frame, text=WINDOW_TITLE, style="Title.TLabel").pack(side="left")
         self.tools_count_label = ttk.Label(title_frame, text=f"({len(self.tools)} tools found)", style="Muted.TLabel")
         self.tools_count_label.pack(side="left", padx=10, pady=(10, 0))
 
