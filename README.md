@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.0
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.0
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -183,6 +183,8 @@ Keyword-only; every argument defaults to `None`, meaning "leave the default".
 | `group_by` | `"capability"` | Which field bands the GUI rows: `"capability"` (the advertised word) or `"category"` (whatever your discoverer assigned). Anything else raises `ValueError`. |
 | `pre_discovery` | `None` | `callable(refresh: bool)` run once before scanning, for side effects like cloning repos into a cache. Skipped on the `--check` path so a login hook never touches the network. |
 | `check_reconcile_shortcuts` | `True` | Whether `--check` also reinstalls drifted shortcuts. Set `False` when your tools' `--install` has side effects unsafe for a login hook, making `--check` skill-only. |
+| `skill_targets` | `[claude_target()]` | Where the text screen can register a skill — see "The text screen" below. |
+| `tui_preselect` | `None` | Initial ticks on the text screen: `None` ticks everything on a host with nothing installed yet and otherwise mirrors the host; `True`/`False` force one or the other. |
 | `window_title` | identity's title | GUI window title. |
 | `self_desktop_file`, `self_desktop_name`, `self_desktop_icon` | identity's | The manager's own shortcut. |
 | `wm_class` | identity's | `StartupWMClass` for window-manager grouping. |
@@ -193,10 +195,41 @@ The identity is applied first and these individual names override it, so you can
 take the whole namespace from a slug and still change one thing.
 
 `run()` owns its own `argparse` and consumes `sys.argv`: `--list`, `--check`,
-`--enable-autostart-check`, `--install`, `--update-all`, `--cleanup`, and the
-GUI when given none of them. A wrapper that needs its own subcommands should
-skip `run()` and call the primitives (`discover_tools`, `install_tool`,
-`remove_tool`, `cli_check`) after applying an identity with `_apply_identity`.
+`--enable-autostart-check`, `--install`, `--update-all`, `--cleanup`, `--tui`,
+`--gui`, and a screen when given none of them. A wrapper that needs its own
+subcommands should skip `run()` and call the primitives (`discover_tools`,
+`install_tool`, `remove_tool`, `cli_check`) after applying an identity with
+`_apply_identity`.
+
+### The text screen
+
+Without a display (`DISPLAY`/`WAYLAND_DISPLAY` unset: SSH, WSL, a server) or
+without `python3-tk`, `run()` opens a curses screen instead of the tkinter
+window; `--tui` and `--gui` force either. Same rows, same Apply: `Space` ticks
+Install, `s` ticks Skill, `a`/`n` tick all or none, `Enter` applies, `q` quits.
+On a host where none of the tools is installed yet every row starts ticked.
+
+A skill can go to more than one place. The default target writes
+`~/.claude/skills/<name>/` through the tool's `--install-skill`; a wrapper adds
+others with `skill_targets`, and the screen lets the user tick which ones
+Apply writes to (keys `1`..`9`):
+
+```python
+from cli_tool_kit.tui_installer import SkillTarget, claude_target
+
+session = SkillTarget(
+    key="fauclaude", label="fauclaude session plugin",
+    installed=lambda tool: ...,          # bool
+    install=lambda tool: (True, "..."),  # (ok, output)
+    uninstall=lambda tool: (True, ""),
+)
+run(identity=IDENTITY, root_dir=HERE, entry_script=__file__,
+    skill_targets=[claude_target(), session])
+```
+
+The screen calls the engine's `install_tool` / `remove_tool` / skill functions
+by name at run time, so a wrapper that replaced them (to run each tool in its
+own venv, say) is honoured there too.
 
 ### Discovering your tools
 

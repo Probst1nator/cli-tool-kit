@@ -45,9 +45,18 @@ import argparse
 import json
 import queue
 import threading
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 from concurrent.futures import ThreadPoolExecutor
+
+# tkinter is a separate package on Debian/Ubuntu (python3-tk) and absent on
+# servers. The headless paths and the curses screen (tui_installer) must keep
+# working without it, so the import is optional; main() picks the screen.
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+    _HAVE_TK = True
+except ImportError:  # pragma: no cover - exercised only where python3-tk is missing
+    tk = ttk = filedialog = messagebox = None
+    _HAVE_TK = False
 from typing import Callable, Dict, List, NamedTuple, Optional
 
 from .identity import InstallerIdentity, LEGACY_IDENTITY
@@ -189,6 +198,14 @@ REFRESH_REPOS = False
 # login hook (cron daemons, an interactive login, a ~/.bashrc function — as in
 # AutomatedAlchemy) sets this False to make --check skill-reconciliation ONLY.
 CHECK_RECONCILE_SHORTCUTS = True
+
+# The curses screen (tui_installer) that main() opens instead of tkinter on a
+# host without a display. SKILL_TARGETS lists where a skill can be registered
+# (None = the default ~/.claude/skills target only); TUI_PRESELECT controls
+# the initial ticks (None = tick everything on a host with nothing installed
+# yet, else mirror the host; True/False force one or the other).
+SKILL_TARGETS: Optional[List] = None
+TUI_PRESELECT: Optional[bool] = None
 
 # Identity of the login update-check artifacts. Distinct names let several
 # wrappers' autostart entries / logs / state files coexist on one host.
@@ -5545,6 +5562,12 @@ def main():
     parser.add_argument("--refresh", action="store_true",
                         help="Before discovery, run the configured PRE_DISCOVERY hook in refresh "
                              "mode (e.g. ff-only pull every known repo checkout). No-op without a hook.")
+    screen = parser.add_mutually_exclusive_group()
+    screen.add_argument("--tui", action="store_true",
+                        help="Open the text screen (curses) instead of the tkinter window. "
+                             "The default whenever no display is reachable or tkinter is missing.")
+    screen.add_argument("--gui", action="store_true",
+                        help="Insist on the tkinter window.")
     args = parser.parse_args()
 
     if args.refresh:
@@ -5607,6 +5630,14 @@ def main():
             print(f" [{status}] {tags_str:<12} {t.category:<12} | {t.name:<25}{alias_info}")
         return
 
+    from . import tui_installer
+    if tui_installer.prefer_tui(force_tui=args.tui, force_gui=args.gui, have_tk=_HAVE_TK):
+        sys.exit(tui_installer.run_tui(tools, targets=SKILL_TARGETS,
+                                       preselect=TUI_PRESELECT, title=WINDOW_TITLE))
+    if not _HAVE_TK:
+        sys.exit("tkinter is not installed (Debian/Ubuntu: apt install python3-tk); "
+                 "use --tui for the text screen.")
+
     root = tk.Tk(className=WM_CLASS)
     InstallerApp(root, tools)
     root.mainloop()
@@ -5618,6 +5649,7 @@ def run(*, identity: Optional[InstallerIdentity] = None,
         discoverer: Optional[Callable] = None, group_by: Optional[str] = None,
         pre_discovery: Optional[Callable] = None,
         check_reconcile_shortcuts: Optional[bool] = None,
+        skill_targets: Optional[List] = None, tui_preselect: Optional[bool] = None,
         autostart_check_desktop_name: Optional[str] = None,
         check_log_name: Optional[str] = None, check_state_name: Optional[str] = None,
         self_desktop_file: Optional[str] = None, self_desktop_name: Optional[str] = None,
@@ -5641,7 +5673,7 @@ def run(*, identity: Optional[InstallerIdentity] = None,
     args; root_dir then defaults to the current working directory.
     """
     global ROOT_DIR, ENTRY_SCRIPT, WINDOW_TITLE, DISCOVERY_ROOTS, DISCOVERER, GROUP_BY
-    global PRE_DISCOVERY, CHECK_RECONCILE_SHORTCUTS
+    global PRE_DISCOVERY, CHECK_RECONCILE_SHORTCUTS, SKILL_TARGETS, TUI_PRESELECT
     global AUTOSTART_CHECK_DESKTOP_NAME, CHECK_LOG_NAME, CHECK_STATE_NAME
     global SELF_DESKTOP_FILE, SELF_DESKTOP_NAME, SELF_DESKTOP_ICON, WM_CLASS, NOTIFY_APP
 
@@ -5675,6 +5707,10 @@ def run(*, identity: Optional[InstallerIdentity] = None,
         PRE_DISCOVERY = pre_discovery
     if check_reconcile_shortcuts is not None:
         CHECK_RECONCILE_SHORTCUTS = check_reconcile_shortcuts
+    if skill_targets is not None:
+        SKILL_TARGETS = list(skill_targets)
+    if tui_preselect is not None:
+        TUI_PRESELECT = tui_preselect
     if autostart_check_desktop_name is not None:
         AUTOSTART_CHECK_DESKTOP_NAME = autostart_check_desktop_name
     if check_log_name is not None:
