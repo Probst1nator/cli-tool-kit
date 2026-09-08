@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional, Union, List
 
+from . import host
 from .identity import InstallerIdentity
 
 
@@ -139,6 +140,8 @@ class ToolInstaller:
 
     def _ensure_apps_dir(self) -> None:
         """Create applications directory if it doesn't exist."""
+        if host.IS_WINDOWS:
+            return  # no freedesktop applications directory here
         if not os.path.exists(self.apps_dir):
             os.makedirs(self.apps_dir)
 
@@ -220,6 +223,12 @@ class ToolInstaller:
         for i, arg in enumerate(metadata.args or []):
             _check_desktop_field(arg, f"args[{i}]")
 
+        if host.IS_WINDOWS:
+            self._install_windows_shortcut(metadata)
+            if metadata.alias:
+                self._install_cli_alias(metadata)
+            return
+
         desktop_path = os.path.join(self.apps_dir, metadata.desktop_file)
 
         exec_line = f"{shlex.quote(sys.executable)} {shlex.quote(self.script_path)}"
@@ -265,6 +274,12 @@ StartupWMClass={wm_class}
             self._remove_cli_alias(metadata)
             return
 
+        if host.IS_WINDOWS:
+            self._remove_windows_shortcut(metadata)
+            if metadata.alias:
+                self._remove_cli_alias(metadata)
+            return
+
         desktop_path = os.path.join(self.apps_dir, metadata.desktop_file)
 
         if os.path.exists(desktop_path):
@@ -279,6 +294,8 @@ StartupWMClass={wm_class}
 
     def _refresh_desktop_database(self) -> None:
         """Refresh desktop database caches."""
+        if host.IS_WINDOWS:
+            return
         for cmd in ["update-desktop-database", "kbuildsycoca5"]:
             try:
                 args = [cmd]
@@ -467,6 +484,10 @@ StartupWMClass={wm_class}
         # passed through during --install / .desktop launches.
         alias_cmd_args = m.alias_args if m.alias_args is not None else m.args
 
+        if host.IS_WINDOWS:
+            self._install_windows_shims(alias_name, alias_cmd_args or [])
+            return
+
         cmd = f'{sys.executable} "{self.script_path}"'
         if alias_cmd_args:
             cmd += " " + " ".join(alias_cmd_args)
@@ -481,12 +502,22 @@ StartupWMClass={wm_class}
         print(colored(f"Alias '{alias_name}' added to {aliases_file}", "green"))
         if bashrc_modified:
             print(colored("Added source line to ~/.bashrc", "green"))
-        print(colored("Run: source ~/.bashrc", "cyan"))
+        print(colored(host.shell_hint(), "cyan"))
 
     def _remove_cli_alias(self, metadata: Optional[ToolMetadata] = None) -> None:
         """Remove a bash alias for a variant."""
         m = metadata if metadata is not None else self.metadata
         alias_name = self._get_alias_name(m)
+
+        if host.IS_WINDOWS:
+            shim_dir = host.shim_dir(self.identity)
+            removed = host.remove_shims(shim_dir, alias_name)
+            if removed:
+                print(colored(f"Command '{alias_name}' removed from {shim_dir}", "green"))
+            else:
+                print(colored(f"Command '{alias_name}' not found.", "yellow"))
+            return
+
         aliases = self._load_aliases()
 
         if alias_name in aliases:
@@ -497,3 +528,45 @@ StartupWMClass={wm_class}
             self._remove_bashrc_source_if_empty()
         else:
             print(colored(f"Alias '{alias_name}' not found.", "yellow"))
+
+    # --- Windows ---------------------------------------------------------
+
+    def _install_windows_shims(self, alias_name: str, args: list) -> None:
+        """Write the two launcher scripts and put their directory on PATH."""
+        shim_dir = host.shim_dir(self.identity)
+        host.write_shims(shim_dir, alias_name, sys.executable, self.script_path, args)
+        changed = host.ensure_user_path(shim_dir)
+        print(colored(f"Command '{alias_name}' installed in {shim_dir}", "green"))
+        if changed:
+            print(colored(f"Added {shim_dir} to your PATH", "green"))
+        print(colored(host.shell_hint(), "cyan"))
+
+    def _windows_shortcut_path(self, metadata: ToolMetadata) -> str:
+        stem = os.path.splitext(metadata.desktop_file)[0]
+        return os.path.join(host.start_menu_dir(), stem + ".lnk")
+
+    def _install_windows_shortcut(self, metadata: ToolMetadata) -> None:
+        """A Start Menu .lnk in place of the .desktop file."""
+        lnk_path = self._windows_shortcut_path(metadata)
+        args = list(metadata.args or [])
+        if metadata.terminal:
+            target = os.environ.get("COMSPEC", "cmd.exe")
+            arg_line = " ".join(
+                f'"{a}"' for a in ["/k", sys.executable, self.script_path] + args
+            )
+        else:
+            target = sys.executable
+            arg_line = " ".join(f'"{a}"' for a in [self.script_path] + args)
+        ok = host.write_shortcut(lnk_path, target, arg_line,
+                                 terminal=metadata.terminal, workdir=self.script_dir)
+        if ok:
+            print(colored(f"Installed: {lnk_path}", "green"))
+        else:
+            print(colored(f"Warning: could not write {lnk_path}", "yellow"))
+
+    def _remove_windows_shortcut(self, metadata: ToolMetadata) -> None:
+        lnk_path = self._windows_shortcut_path(metadata)
+        if host.remove_shortcut(lnk_path):
+            print(colored(f"Removed: {lnk_path}", "green"))
+        else:
+            print(colored(f"Shortcut not found: {lnk_path}", "yellow"))

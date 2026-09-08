@@ -38,6 +38,8 @@ def test_slug_derives_every_name():
     assert ident.check_desktop == "acme-tools-check.desktop"
     assert ident.check_log == "acme-tools-check.log"
     assert ident.check_state == "acme-tools-check.json"
+    # Windows shims: %LOCALAPPDATA%\acme-tools\bin, derived from the slug too.
+    assert ident.shim_path.replace(os.sep, "/").endswith("/acme-tools/bin")
 
 
 def test_title_defaults_to_slug():

@@ -154,6 +154,19 @@ class InstallerIdentity:
         return os.path.expanduser(self.cache_dir or _home(".cache", self.slug))
 
     @property
+    def shim_path(self) -> str:
+        """Where this installer's Windows launcher scripts go.
+
+        ``%LOCALAPPDATA%\\<slug>\\bin`` — the directory added to the user PATH
+        on Windows in place of the alias file. Derived from the slug like every
+        other per-host name, so two orgs on one host keep separate shims.
+        """
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser(
+            _home("AppData", "Local")
+        )
+        return os.path.join(base, self.slug, "bin")
+
+    @property
     def check_desktop(self) -> str:
         return self.check_desktop_name or f"{self.slug}-check.desktop"
 

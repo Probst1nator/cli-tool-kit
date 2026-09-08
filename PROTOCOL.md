@@ -75,7 +75,9 @@ Tools declare their capabilities via `tags`:
 - **`Icon`** — gets a `.desktop` shortcut in `~/.local/share/applications/`
 
 Without `Icon`, the tool is installed as a bash alias in `~/.tools_aliases`
-(which the installer auto-sources from `~/.bashrc` on first install).
+(which the installer auto-sources from `~/.bashrc` on first install). On
+Windows there is no alias file: the same `alias` becomes a launcher script
+(a shim) in `%LOCALAPPDATA%\<slug>\bin`, which is added to the user PATH.
 
 | Tool type | Tags | `alias` field | Resulting install |
 |---|---|---|---|

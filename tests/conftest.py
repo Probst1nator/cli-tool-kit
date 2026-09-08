@@ -56,6 +56,11 @@ def sandbox_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    # The Windows equivalents, so the shim directory and the Start Menu also
+    # land under the sandbox when a test patches host.IS_WINDOWS.
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
+    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
     # os.path.expanduser caches its lookups via os.environ['HOME']; that's
     # fine because monkeypatch.setenv updates os.environ in-place.
     return home

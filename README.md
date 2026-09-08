@@ -1,6 +1,6 @@
 # cli-tool-kit
 
-A small library for self-installing Python CLI/GUI tools on Linux desktops.
+A small library for self-installing Python CLI/GUI tools on Linux and Windows desktops.
 Provides:
 
 - **`ToolInstaller`** — install/remove `.desktop` shortcuts or bash aliases
@@ -27,13 +27,13 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.2
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.4.0
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.3.2
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.4.0
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -86,7 +86,25 @@ if __name__ == "__main__":
 ```
 
 After `python my_tool.py --install`, the `mytool` alias is available in new
-shells (run `source ~/.bashrc` to pick it up immediately).
+shells (run `source ~/.bashrc` to pick it up immediately). On Windows the same
+call writes a `mytool` shim instead — see [§ Windows](#windows).
+
+## Windows
+
+The kit runs on Windows as well as Linux. Every platform decision lives in
+`cli_tool_kit/host.py`; the differences a user sees are these.
+
+- A CLI tool has no bash alias. `--install` writes two launcher scripts into
+  `%LOCALAPPDATA%\<slug>\bin`: `<alias>.cmd` for cmd.exe and PowerShell, and
+  an extensionless `<alias>` shell script for Git Bash, which is the shell
+  Claude Code uses. That directory is added to the user's PATH once, so open a
+  new terminal after the first install.
+- A tool tagged `Icon` gets a Start Menu shortcut (`.lnk`) instead of a
+  `.desktop` file, and autostart copies that shortcut into the Startup folder.
+  Cron-scheduled autostart is not supported on Windows.
+- The tkinter installer window works out of the box. The text screen
+  (`--tui`) needs curses, which Python for Windows does not ship:
+  `pip install windows-curses`.
 
 ## Cron entries
 

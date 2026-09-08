@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 from . import gui_installer as gi
+from . import host
 from .gui_installer import ToolEntry
 
 
@@ -74,11 +75,16 @@ def prefer_tui(*, force_tui: bool = False, force_gui: bool = False,
 
     Explicit flags win. Without them, tkinter runs only when it is importable
     and a display is reachable (``DISPLAY`` or ``WAYLAND_DISPLAY`` set).
+
+    Windows has no DISPLAY variable and ships tkinter with Python, so there the
+    answer is just whether ``--tui`` was passed.
     """
     if force_tui:
         return True
     if force_gui:
         return False
+    if host.IS_WINDOWS:
+        return force_tui
     if not have_tk:
         return True
     env = os.environ if environ is None else environ
@@ -258,7 +264,7 @@ def apply_headless(tools: List[ToolEntry], names: str, target_keys: str = "claud
     if hint:
         print(f"Run: {hint}")
     elif result.get("install") or result.get("update"):
-        print("Open a new shell, or run: source ~/.bashrc")
+        print(host.shell_hint())
     return 1 if result.get("errors") else 0
 
 
@@ -433,7 +439,13 @@ def run_tui(tools: List[ToolEntry], *, targets: Optional[List[SkillTarget]] = No
     if not tools:
         print("No tools found.", file=sys.stderr)
         return 1
-    import curses
+    try:
+        import curses
+    except ImportError:
+        print("The text screen needs the curses module, which Python for "
+              "Windows does not include. Install it with: "
+              "pip install windows-curses", file=sys.stderr)
+        return 1
     targets = list(targets) if targets else [claude_target()]
     rows = default_rows(tools, preselect, skill_installed=targets[0].installed)
     st = _State(rows=rows, targets=targets, active={targets[0].key}, title=title)
@@ -445,6 +457,6 @@ def run_tui(tools: List[ToolEntry], *, targets: Optional[List[SkillTarget]] = No
         if hint:
             print(f"Run: {hint}")
         elif st.result.get("install") or st.result.get("update"):
-            print("Open a new shell, or run: source ~/.bashrc")
+            print(host.shell_hint())
         return 1 if st.result.get("errors") else 0
     return 0
