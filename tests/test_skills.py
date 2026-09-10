@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cli_tool_kit import installed_skill_hash, skill_payload_hash, skill_status
+from cli_tools_kit import installed_skill_hash, skill_payload_hash, skill_status
 
 
 def _install(home: Path, name: str, files: dict[str, str]) -> None:

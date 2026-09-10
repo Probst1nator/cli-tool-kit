@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Greeter — a complete, minimal cli-tool-kit tool.
+"""Greeter — a complete, minimal cli-tools-kit tool.
 
 Everything an installer needs from a tool is here and nothing else: the
 --advertise probe, --install/--remove, and the optional Claude Code skill pair.
@@ -80,7 +80,7 @@ def _uninstall_skill() -> None:
 # organisation's marker and land in its alias file.
 
 def _installer():
-    from cli_tool_kit import ToolInstaller, ToolMetadata
+    from cli_tools_kit import ToolInstaller, ToolMetadata
     return ToolInstaller(
         script_path=__file__,
         metadata=ToolMetadata(

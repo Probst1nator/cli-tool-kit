@@ -1,4 +1,4 @@
-"""Tests for the Windows paths in cli_tool_kit.host.
+"""Tests for the Windows paths in cli_tools_kit.host.
 
 These run on Linux: ``host.IS_WINDOWS`` is patched where a Windows decision is
 under test, and the registry is a fake object, so nothing here needs a Windows
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from cli_tool_kit import host, InstallerIdentity, ToolInstaller, ToolMetadata
+from cli_tools_kit import host, InstallerIdentity, ToolInstaller, ToolMetadata
 
 
 # --- shims -------------------------------------------------------------------
@@ -140,7 +140,7 @@ def test_start_menu_and_startup_dirs(sandbox_home: Path) -> None:
 
 
 def test_prefer_tui_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    from cli_tool_kit import tui_installer
+    from cli_tools_kit import tui_installer
 
     monkeypatch.setattr(host, "IS_WINDOWS", True)
     # No DISPLAY on Windows, and tkinter ships with Python: only --tui forces

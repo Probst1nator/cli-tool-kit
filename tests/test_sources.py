@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from cli_tool_kit import sources
-from cli_tool_kit.sources import Source, load_sources, resolve_sources
+from cli_tools_kit import sources
+from cli_tools_kit.sources import Source, load_sources, resolve_sources
 
 
 def _write(path: Path, body: str) -> Path:
@@ -270,7 +270,7 @@ def test_the_same_path_is_listed_once(tmp_path: Path) -> None:
 @pytest.fixture
 def engine(monkeypatch):
     """Capture the keyword arguments run_installer hands to the engine."""
-    from cli_tool_kit import gui_installer
+    from cli_tools_kit import gui_installer
 
     captured: dict = {}
 

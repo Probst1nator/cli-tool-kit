@@ -9,9 +9,9 @@ from typing import List
 
 import pytest
 
-from cli_tool_kit import gui_installer as gi
-from cli_tool_kit import tui_installer as tui
-from cli_tool_kit.gui_installer import ToolEntry
+from cli_tools_kit import gui_installer as gi
+from cli_tools_kit import tui_installer as tui
+from cli_tools_kit.gui_installer import ToolEntry
 
 
 def _tool(name: str, skill: str = "", script: str = "") -> ToolEntry:

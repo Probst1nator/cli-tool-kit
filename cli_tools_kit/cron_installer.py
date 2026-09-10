@@ -7,7 +7,7 @@ cron lines (with different markers or none at all) are left untouched.
 
 Example:
 
-    from cli_tool_kit import CronInstaller
+    from cli_tools_kit import CronInstaller
 
     cron = CronInstaller("studon-client")
     cron.install([
@@ -30,6 +30,9 @@ except ImportError:
         return text
 
 
+# The marker on real crontabs since the first release. It keeps the old
+# project name on purpose: renaming it would leave every already-installed
+# cron line unmatched by remove().
 _TAG_PREFIX = "# cli-tool-kit:"
 
 

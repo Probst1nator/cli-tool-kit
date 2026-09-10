@@ -62,7 +62,7 @@ class ToolMetadata:
     category: Optional[str] = None
     # Claude Code skill registration (PROTOCOL.md § Optional skill_name).
     # `skill_status` is "absent" | "current" | "stale"; compute it with
-    # cli_tool_kit.skill_status() at advertise time and pass it in.
+    # cli_tools_kit.skill_status() at advertise time and pass it in.
     skill_name: Optional[str] = None
     skill_status: Optional[str] = None
 

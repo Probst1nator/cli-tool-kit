@@ -8,13 +8,13 @@ install or remove its desktop entry, shell alias and Claude Code skill.
     python3 installer.py --list     # what was discovered
     python3 installer.py --check    # headless login reconciliation
 
-See PROTOCOL.md in cli-tool-kit for what a tool must advertise to show up here.
+See PROTOCOL.md in cli-tools-kit for what a tool must advertise to show up here.
 """
 
 import os
 
-from cli_tool_kit import InstallerIdentity
-from cli_tool_kit.gui_installer import run
+from cli_tools_kit import InstallerIdentity
+from cli_tools_kit.gui_installer import run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

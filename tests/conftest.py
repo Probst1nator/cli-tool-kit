@@ -45,7 +45,7 @@ esac
     )
     shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    from cli_tool_kit import cron_installer
+    from cli_tools_kit import cron_installer
     monkeypatch.setattr(cron_installer.CronInstaller, "CRONTAB_BIN", str(shim))
     return crontab_file
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from cli_tool_kit import InstallerIdentity, LEGACY_IDENTITY, ToolInstaller, ToolMetadata
+from cli_tools_kit import InstallerIdentity, LEGACY_IDENTITY, ToolInstaller, ToolMetadata
 
 
 # --- the identity value ----------------------------------------------------
@@ -178,12 +178,12 @@ def test_tool_run_by_hand_keeps_the_legacy_names(sandbox_home: Path, tmp_path: P
 def test_run_is_importable():
     # The one entry point a third-party wrapper calls. It was never exercised
     # by a test before 0.2.2.
-    from cli_tool_kit.gui_installer import run
+    from cli_tools_kit.gui_installer import run
     assert callable(run)
 
 
 def test_apply_identity_repoints_every_global(sandbox_home: Path):
-    import cli_tool_kit.gui_installer as gi
+    import cli_tools_kit.gui_installer as gi
 
     before = gi.IDENTITY
     try:
@@ -204,18 +204,18 @@ def test_apply_identity_repoints_every_global(sandbox_home: Path):
 
 
 def test_engine_defaults_are_the_legacy_identity():
-    import cli_tool_kit.gui_installer as gi
+    import cli_tools_kit.gui_installer as gi
     assert gi.IDENTITY is LEGACY_IDENTITY
 
 
 def test_group_by_is_validated():
-    from cli_tool_kit.gui_installer import run
+    from cli_tools_kit.gui_installer import run
     with pytest.raises(ValueError, match="group_by"):
         run(identity=InstallerIdentity(slug="acme"), group_by="nonsense")
 
 
 def test_default_discoverer_finds_flat_and_nested_layouts(tmp_path: Path):
-    from cli_tool_kit.gui_installer import _default_tools_discoverer
+    from cli_tools_kit.gui_installer import _default_tools_discoverer
 
     def make(*parts: str) -> None:
         d = tmp_path.joinpath(*parts)
@@ -239,7 +239,7 @@ def test_default_discoverer_finds_flat_and_nested_layouts(tmp_path: Path):
 
 
 def test_custom_discoverer_is_honoured(tmp_path: Path, monkeypatch):
-    import cli_tool_kit.gui_installer as gi
+    import cli_tools_kit.gui_installer as gi
 
     script = tmp_path / "greeter" / "main.py"
     script.parent.mkdir()
@@ -265,3 +265,108 @@ def test_custom_discoverer_is_honoured(tmp_path: Path, monkeypatch):
     assert calls == [str(tmp_path)]
     assert [t.name for t in tools] == ["Greeter"]
     assert tools[0].category == "Custom"
+
+
+# --- the wider walk used when discovery_roots is set ------------------------
+
+def _tool(directory: Path, script: str = "main.py") -> Path:
+    """A directory that looks like a tool: an entry point and requirements.txt."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / script).write_text("")
+    (directory / "requirements.txt").write_text("")
+    return directory
+
+
+def test_walk_discoverer_finds_the_three_layouts(tmp_path: Path):
+    from cli_tools_kit.gui_installer import _walk_tools_discoverer
+
+    root = tmp_path / "manim-kit"
+    _tool(root, "manim_kit.py")          # the root itself is the tool
+    _tool(root / "greeter")              # one level down
+    _tool(root / "tools" / "faullm")     # two levels down
+    (root / "docs").mkdir()              # no entry point
+
+    found = {os.path.relpath(p, root): cat for p, cat in _walk_tools_discoverer(str(root))}
+    assert found == {
+        "manim_kit.py": "manim-kit",     # category is the root's own name
+        "greeter/main.py": "",           # parent is the root, so no category
+        "tools/faullm/main.py": "tools",  # category is the parent directory
+    }
+
+
+def test_walk_discoverer_needs_requirements_next_to_the_entry_point(tmp_path: Path):
+    from cli_tools_kit.gui_installer import _walk_tools_discoverer
+
+    (tmp_path / "script-only").mkdir()
+    (tmp_path / "script-only" / "main.py").write_text("")
+    (tmp_path / "deps-only").mkdir()
+    (tmp_path / "deps-only" / "requirements.txt").write_text("")
+    assert _walk_tools_discoverer(str(tmp_path)) == []
+
+
+def test_walk_discoverer_takes_the_directory_name_with_underscores(tmp_path: Path):
+    from cli_tools_kit.gui_installer import _walk_tools_discoverer
+
+    _tool(tmp_path / "manim-kit", "manim_kit.py")     # dashes become underscores
+    _tool(tmp_path / "other-kit", "other-kit.py")     # the dashed spelling is not it
+    _tool(tmp_path / "third-kit", "run.py")           # some other name is not it
+
+    found = [os.path.relpath(p, tmp_path) for p, _ in _walk_tools_discoverer(str(tmp_path))]
+    assert found == ["manim-kit/manim_kit.py"]
+
+
+def test_walk_discoverer_prunes_the_directories_that_are_not_tools(tmp_path: Path):
+    from cli_tools_kit.gui_installer import _walk_tools_discoverer
+
+    _tool(tmp_path / "keeper")
+    for skipped in (".venv", "venv", ".git", "node_modules", "__pycache__",
+                    "vendor-G2", "out", "cache", "build", "dist", "archive",
+                    ".hidden"):
+        _tool(tmp_path / skipped)
+        _tool(tmp_path / skipped / "inner")
+
+    found = [os.path.relpath(p, tmp_path) for p, _ in _walk_tools_discoverer(str(tmp_path))]
+    assert found == ["keeper/main.py"]
+
+
+def test_walk_discoverer_stops_at_four_levels(tmp_path: Path):
+    from cli_tools_kit.gui_installer import _walk_tools_discoverer
+
+    _tool(tmp_path / "a" / "b" / "c" / "deep")          # depth 4, found
+    _tool(tmp_path / "a" / "b" / "c" / "d" / "deeper")  # depth 5, not found
+
+    found = [os.path.relpath(p, tmp_path) for p, _ in _walk_tools_discoverer(str(tmp_path))]
+    assert found == ["a/b/c/deep/main.py"]
+
+
+def test_walk_discoverer_takes_the_names_a_wrapper_prunes(tmp_path: Path, monkeypatch):
+    """run(prune=[...]) fills EXTRA_PRUNE, which extends the default set."""
+    import cli_tools_kit.gui_installer as gi
+
+    _tool(tmp_path / "keeper")
+    _tool(tmp_path / "web")
+    _tool(tmp_path / "build")          # a default prune name, still pruned
+
+    monkeypatch.setattr(gi, "EXTRA_PRUNE", {"web"})
+    found = [os.path.relpath(p, tmp_path)
+             for p, _ in gi._walk_tools_discoverer(str(tmp_path))]
+    assert found == ["keeper/main.py"]
+
+
+def test_walk_discoverer_is_the_default_only_with_discovery_roots(tmp_path: Path,
+                                                                  monkeypatch):
+    import cli_tools_kit.gui_installer as gi
+
+    seen = []
+    monkeypatch.setattr(gi, "get_metadata_native",
+                        lambda entry, category: seen.append((entry, category)) or [])
+    _tool(tmp_path / "tools" / "faullm")
+
+    monkeypatch.setattr(gi, "ROOT_DIR", str(tmp_path))
+    monkeypatch.setattr(gi, "DISCOVERY_ROOTS", [])
+    gi.discover_tools()
+    assert seen == []          # the flat/tools_* walk does not reach that deep
+
+    monkeypatch.setattr(gi, "DISCOVERY_ROOTS", [str(tmp_path)])
+    gi.discover_tools()
+    assert seen == [(str(tmp_path / "tools" / "faullm" / "main.py"), "tools")]

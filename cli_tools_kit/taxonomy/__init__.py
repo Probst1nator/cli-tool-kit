@@ -18,11 +18,11 @@ Three tiers, tried in order, so the feature degrades instead of failing:
    cluster after its most distinctive token. Names are poor ("git", "clipboard")
    but the tree still opens.
 
-:func:`~cli_tool_kit.taxonomy.groups.ensure_groups` is the entry point a
+:func:`~cli_tools_kit.taxonomy.groups.ensure_groups` is the entry point a
 wrapper's discoverer calls. It fingerprints the tree's documents and rebuilds
 only when they changed, so the common case costs a couple of milliseconds.
 
-    from cli_tool_kit.taxonomy import ensure_groups
+    from cli_tools_kit.taxonomy import ensure_groups
     groups = ensure_groups(root)      # {tool_name: band label}
 """
 

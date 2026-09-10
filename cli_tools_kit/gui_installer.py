@@ -2,17 +2,17 @@
 """
 Reusable tkinter GUI installer engine.
 
-Autodetects tools that speak the cli-tool-kit ``--advertise`` protocol and
+Autodetects tools that speak the cli-tools-kit ``--advertise`` protocol and
 offers batch management of their desktop shortcuts / bash aliases / skills.
 
 This module used to live as ``tools/installer.py``; it was lifted into
-cli-tool-kit so multiple project trees can share one full-featured GUI instead
+cli-tools-kit so multiple project trees can share one full-featured GUI instead
 of each maintaining a forked copy. It is driven entirely by module-level
 configuration (see the CONFIGURATION block below) which a thin wrapper sets via
 ``run(...)`` before launching:
 
     # tools/installer.py
-    from cli_tool_kit import gui_installer as gi
+    from cli_tools_kit import gui_installer as gi
     gi.run(root_dir=HERE, entry_script=__file__)
 
     # AutomatedAlchemy/installer.py — flat tree + repo-cache + skill-only check
@@ -22,7 +22,7 @@ configuration (see the CONFIGURATION block below) which a thin wrapper sets via
     ...
     gi.run(root_dir=HERE, entry_script=__file__, window_title="...")
 
-Standalone (``python -m cli_tool_kit.gui_installer`` / the ``cli-tool-installer``
+Standalone (``python -m cli_tools_kit.gui_installer`` / the ``cli-tool-installer``
 console script) it scans the current working directory with the default
 ``tools_*/<tool>/main.py`` layout. Other layouts are supported through the
 ``discoverer`` hook, and ``group_by`` chooses whether the GUI bands rows by the
@@ -32,7 +32,7 @@ assigned.
 
 # Annotations are deferred so the module imports without Pillow. Several
 # signatures mention ImageTk/Image, which are None when Pillow is absent;
-# evaluating them at def time made "pip install cli-tool-kit" (no [gui]
+# evaluating them at def time made "pip install cli-tools-kit" (no [gui]
 # extra) fail at import, despite the icon code degrading fine at runtime.
 from __future__ import annotations
 
@@ -57,12 +57,12 @@ try:
 except ImportError:  # pragma: no cover - exercised only where python3-tk is missing
     tk = ttk = filedialog = messagebox = None
     _HAVE_TK = False
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence
 
 from . import host
 from .identity import InstallerIdentity, LEGACY_IDENTITY
 
-# Pillow renders tool icons. It is an optional extra (``cli-tool-kit[gui]``);
+# Pillow renders tool icons. It is an optional extra (``cli-tools-kit[gui]``);
 # without it the GUI still runs, just without per-tool icon thumbnails, and the
 # headless paths (--list / --check) work regardless.
 try:
@@ -131,7 +131,7 @@ _ROW_HOVER_STYLES_REV = {v: k for k, v in _ROW_HOVER_STYLES.items()}
 # ROOT_DIR — the project tree being managed. Defaults to the directory of this
 # module for standalone use, but a wrapper almost always overrides it via
 # run(root_dir=...) to point at its own tree (so discovery, .env, and the
-# self-shortcut Path= all anchor to the wrapper, not the cli-tool-kit checkout).
+# self-shortcut Path= all anchor to the wrapper, not the cli-tools-kit checkout).
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ENTRY_SCRIPT — the script a wrapper wants launched by the manager .desktop and
@@ -178,7 +178,10 @@ CLAUDE_SKILLS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "skills")
 WINDOW_TITLE = IDENTITY.display_title
 DISCOVERY_ROOTS: List[str] = []   # Set lazily in discover_tools() to [ROOT_DIR] if empty.
 DISCOVERER: Optional[Callable] = None  # callable(root) -> List[(entry_point_path, category)].
-                                   # When None, the default tools_* / main.py walk is used.
+                                   # When None: the tools_* / main.py walk for a
+                                   # single ROOT_DIR, and the wider
+                                   # _walk_tools_discoverer once DISCOVERY_ROOTS
+                                   # is set.
 
 # GROUP_BY — which ToolEntry field labels the GUI's row bands. "capability" (the
 # default) clusters every agent, every tts, regardless of folder. "category" lets
@@ -698,6 +701,72 @@ def _default_tools_discoverer(root: str) -> List[tuple]:
     return found
 
 
+# How deep below a discovery root a tool is still found, and the directory names
+# the walk never enters. `vendor*` catches vendored checkouts (vendor-G2).
+MAX_DISCOVERY_DEPTH = 4
+DISCOVERY_PRUNE = {".venv", "venv", ".git", "node_modules", "__pycache__",
+                   "out", "cache", "build", "dist", "archive"}
+
+# Names a wrapper adds to DISCOVERY_PRUNE for its own tree, via run(prune=...).
+# It extends the default set rather than replacing it.
+EXTRA_PRUNE: set = set()
+
+
+def _walk_entry_point(dirpath: str, filenames) -> Optional[str]:
+    """The entry point of a tool directory, or None when it is not one.
+
+    A directory is a tool when it holds ``requirements.txt`` next to either
+    ``main.py`` or ``<dirname>.py`` with dashes written as underscores, which is
+    how a one-tool repo names its script (manim-kit ships ``manim_kit.py``).
+    """
+    if "requirements.txt" not in filenames:
+        return None
+    own = os.path.basename(dirpath).replace("-", "_") + ".py"
+    for name in ("main.py", own):
+        if name in filenames:
+            return os.path.join(dirpath, name)
+    return None
+
+
+def _walk_pruned(name: str) -> bool:
+    return (name.startswith(".") or name.startswith("vendor")
+            or name in DISCOVERY_PRUNE or name in EXTRA_PRUNE)
+
+
+def _walk_category(root: str, tool_dir: str) -> str:
+    """The tool's parent directory name, or the root's name when the tool is the root."""
+    if tool_dir == root:
+        return os.path.basename(root)
+    parent = os.path.dirname(tool_dir)
+    return "" if parent == root else os.path.basename(parent)
+
+
+def _walk_tools_discoverer(root: str) -> List[tuple]:
+    """Find tools anywhere under one root, returning (entry_point, category).
+
+    The root itself counts, so a repo whose script sits at its top level is one
+    tool. Below it the walk goes at most ``MAX_DISCOVERY_DEPTH`` levels and
+    skips the names in ``DISCOVERY_PRUNE`` and ``EXTRA_PRUNE``, anything
+    starting with a dot, and anything starting with ``vendor``. A wrapper fills
+    ``EXTRA_PRUNE`` by passing ``prune``. This is the default when a wrapper passes
+    ``discovery_roots``, because a tree of several repos puts tools at depths
+    the flat/``tools_*`` layouts do not describe.
+    """
+    found = []
+    if not os.path.isdir(root):
+        return found
+    root = os.path.abspath(root)
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        dirnames[:] = sorted(d for d in dirnames
+                             if not _walk_pruned(d) and depth < MAX_DISCOVERY_DEPTH)
+        entry = _walk_entry_point(dirpath, filenames)
+        if entry:
+            found.append((entry, _walk_category(root, dirpath)))
+    return found
+
+
 def discover_tools(run_pre: bool = True) -> List[ToolEntry]:
     """Scan configured DISCOVERY_ROOTS for installable tools.
 
@@ -713,7 +782,11 @@ def discover_tools(run_pre: bool = True) -> List[ToolEntry]:
         PRE_DISCOVERY(REFRESH_REPOS)
 
     roots = DISCOVERY_ROOTS or [ROOT_DIR]
-    discoverer = DISCOVERER or _default_tools_discoverer
+    # A single root_dir keeps the flat/tools_* layouts it has always used; the
+    # category label of a tools_<cat>/ tree is only produced there. Several
+    # roots mean repos of different shapes, so those get the wider walk.
+    discoverer = DISCOVERER or (_walk_tools_discoverer if DISCOVERY_ROOTS
+                                else _default_tools_discoverer)
 
     # Each tool is probed by spawning it with --advertise (a short-lived
     # subprocess that exits before its heavy imports). That makes discovery
@@ -5756,7 +5829,8 @@ def main():
 def run(*, identity: Optional[InstallerIdentity] = None,
         root_dir: Optional[str] = None, entry_script: Optional[str] = None,
         window_title: Optional[str] = None, discovery_roots: Optional[List[str]] = None,
-        discoverer: Optional[Callable] = None, group_by: Optional[str] = None,
+        discoverer: Optional[Callable] = None, prune: Optional[Sequence[str]] = None,
+        group_by: Optional[str] = None,
         pre_discovery: Optional[Callable] = None,
         check_reconcile_shortcuts: Optional[bool] = None,
         skill_targets: Optional[List] = None, tui_preselect: Optional[bool] = None,
@@ -5779,10 +5853,15 @@ def run(*, identity: Optional[InstallerIdentity] = None,
     sweeper matches on) so two organisations' installers coexist. Passing none
     selects ``LEGACY_IDENTITY``, the historical first-party names.
 
+    ``prune`` adds directory names the default wider walk never enters, on top
+    of ``DISCOVERY_PRUNE``. It does nothing when a wrapper passes its own
+    ``discoverer``.
+
     Standalone use (the ``cli-tool-installer`` console script) calls this with no
     args; root_dir then defaults to the current working directory.
     """
     global ROOT_DIR, ENTRY_SCRIPT, WINDOW_TITLE, DISCOVERY_ROOTS, DISCOVERER, GROUP_BY
+    global EXTRA_PRUNE
     global PRE_DISCOVERY, CHECK_RECONCILE_SHORTCUTS, SKILL_TARGETS, TUI_PRESELECT
     global AUTOSTART_CHECK_DESKTOP_NAME, CHECK_LOG_NAME, CHECK_STATE_NAME
     global SELF_DESKTOP_FILE, SELF_DESKTOP_NAME, SELF_DESKTOP_ICON, WM_CLASS, NOTIFY_APP
@@ -5808,6 +5887,8 @@ def run(*, identity: Optional[InstallerIdentity] = None,
         DISCOVERY_ROOTS = discovery_roots
     if discoverer is not None:
         DISCOVERER = discoverer
+    if prune is not None:
+        EXTRA_PRUNE = set(prune)
     if group_by is not None:
         if group_by not in ("capability", "category"):
             raise ValueError(

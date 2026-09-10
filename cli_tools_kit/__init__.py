@@ -1,8 +1,8 @@
-"""cli-tool-kit — installer protocol + helpers for self-installing Python CLI/GUI tools.
+"""cli-tools-kit — installer protocol + helpers for self-installing Python CLI/GUI tools.
 
 Public API:
 
-    from cli_tool_kit import (
+    from cli_tools_kit import (
         ToolInstaller, ToolMetadata,   # desktop file / bash alias install/remove
         CronInstaller,                 # idempotent cron-line management
         advertise,                     # --advertise JSON helper
@@ -12,21 +12,21 @@ Public API:
 
 The GUI installer engine is a submodule, since importing it pulls in tkinter:
 
-    from cli_tool_kit.gui_installer import run
+    from cli_tools_kit.gui_installer import run
 
     run(identity=InstallerIdentity(slug="acme-tools"), root_dir=HERE,
         entry_script=__file__)
 
 Tools that live in several repos are listed in an installer.toml and resolved
-by cli_tool_kit.sources:
+by cli_tools_kit.sources:
 
-    from cli_tool_kit.sources import run_installer
+    from cli_tools_kit.sources import run_installer
 
     run_installer("installer.toml", identity=InstallerIdentity(slug="acme-tools"),
                   entry_script=__file__)
 
 See README.md § Reusing the installer in your org for the full run() signature,
-README.md § Sources for the TOML format, and `python3 -m cli_tool_kit` to be
+README.md § Sources for the TOML format, and `python3 -m cli_tools_kit` to be
 walked through the setup.
 
 See PROTOCOL.md for the full --advertise specification.
@@ -56,4 +56,4 @@ __all__ = [
     "read_installed_skill",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

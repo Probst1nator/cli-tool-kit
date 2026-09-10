@@ -1,7 +1,7 @@
 """First-run setup for an organisation adopting the installer.
 
 Running the engine bare — ``cli-tool-installer`` in a fresh tree, with no
-wrapper and no :class:`~cli_tool_kit.InstallerIdentity` — used to open a GUI
+wrapper and no :class:`~cli_tools_kit.InstallerIdentity` — used to open a GUI
 titled "probable.work - Tools Installer" that wrote ``ai_tools_manager.desktop``
 and claimed the first-party alias file. That is never what a third party wants,
 and they had no way to know it happened.
@@ -64,13 +64,13 @@ install or remove its desktop entry, shell alias and Claude Code skill.
     python3 {WRAPPER_NAME} --list     # what was discovered
     python3 {WRAPPER_NAME} --check    # headless login reconciliation
 
-See PROTOCOL.md in cli-tool-kit for what a tool must advertise to show up here.
+See PROTOCOL.md in cli-tools-kit for what a tool must advertise to show up here.
 """
 
 import os
 
-from cli_tool_kit import InstallerIdentity
-from cli_tool_kit.gui_installer import run
+from cli_tools_kit import InstallerIdentity
+from cli_tools_kit.gui_installer import run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -106,12 +106,12 @@ def agent_prompt(root_dir: str) -> str:
     expensive to change afterwards.
     """
     return f"""\
-Set up a cli-tool-kit installer for my organisation in {root_dir}.
+Set up a cli-tools-kit installer for my organisation in {root_dir}.
 
 Context you need:
-- cli-tool-kit is an installed Python package. The engine is
-  `cli_tool_kit.gui_installer.run()`; the identity type is
-  `cli_tool_kit.InstallerIdentity`. Read the package's README.md section
+- cli-tools-kit is an installed Python package (`pip install cli-tools-kit`).
+  The engine is `cli_tools_kit.gui_installer.run()`; the identity type is
+  `cli_tools_kit.InstallerIdentity`. Read the package's README.md section
   "Reusing the installer in your org", and PROTOCOL.md for the tool-side
   `--advertise` contract. There is a complete working wrapper plus an example
   tool in the package repo under `examples/org-installer/` — copy that shape.
@@ -136,7 +136,7 @@ shortcuts exist on people's machines:
 Then:
 - Write {root_dir}/{WRAPPER_NAME} using `InstallerIdentity` and `run()`. Keep
   it to identity plus root_dir/entry_script — every other knob has a default
-  worth keeping. `python3 -m cli_tool_kit --setup --print-wrapper` prints a
+  worth keeping. `python3 -m cli_tools_kit --setup --print-wrapper` prints a
   correct skeleton you can start from.
 - Run `python3 {WRAPPER_NAME} --list` and show me what it discovered. If a tool
   I expected is missing, its `--advertise` is the thing to fix: it must print
@@ -163,7 +163,7 @@ def _ask(prompt: str, default: str = "") -> str:
 
 def scripted_setup(root_dir: str) -> int:
     """Interview the user on stdin and write the wrapper. Returns an exit code."""
-    print(f"\nSetting up a cli-tool-kit installer in {root_dir}\n")
+    print(f"\nSetting up a cli-tools-kit installer in {root_dir}\n")
     print("Four questions. Press Enter to take the default in brackets.\n")
 
     default_slug = _slugify(os.path.basename(os.path.abspath(root_dir)))
@@ -206,7 +206,7 @@ def scripted_setup(root_dir: str) -> int:
 def print_onboarding(root_dir: str) -> int:
     """What the bare engine shows instead of opening a mis-branded GUI."""
     print(f"""
-cli-tool-kit — no installer is configured for this tree.
+cli-tools-kit — no installer is configured for this tree.
 
 Running the engine directly would open an installer that claims the default
 first-party names on this host, which is almost certainly not what you want.
@@ -221,22 +221,22 @@ Set up your own instead; it is one small file.
 
   Or answer the same questions here:
 
-      python3 -m cli_tool_kit --setup --interactive
+      python3 -m cli_tools_kit --setup --interactive
 
   Or just print the wrapper skeleton and edit it yourself:
 
-      python3 -m cli_tool_kit --setup --print-wrapper
+      python3 -m cli_tools_kit --setup --print-wrapper
 """)
     return 0
 
 
 def main(argv: Optional[list] = None) -> int:
-    """``python3 -m cli_tool_kit`` — setup, and nothing else."""
+    """``python3 -m cli_tools_kit`` — setup, and nothing else."""
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="python3 -m cli_tool_kit",
-        description="Set up a cli-tool-kit installer for your organisation.",
+        prog="python3 -m cli_tools_kit",
+        description="Set up a cli-tools-kit installer for your organisation.",
     )
     parser.add_argument("--setup", action="store_true",
                         help="show setup instructions (the default action)")

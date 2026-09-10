@@ -3,7 +3,7 @@
 import os
 import sys
 
-from cli_tool_kit.taxonomy.capability import DEFAULT_BANDS, capability_groups
+from cli_tools_kit.taxonomy.capability import DEFAULT_BANDS, capability_groups
 
 
 def test_cold_start_files_by_the_default_table():

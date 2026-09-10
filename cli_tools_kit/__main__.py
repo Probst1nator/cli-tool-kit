@@ -1,9 +1,9 @@
-"""``python3 -m cli_tool_kit`` — set up an installer for your organisation.
+"""``python3 -m cli_tools_kit`` — set up an installer for your organisation.
 
 Two surfaces:
 
-    python3 -m cli_tool_kit                       first-run setup (the default)
-    python3 -m cli_tool_kit install FILE [flags]  run the installer for a
+    python3 -m cli_tools_kit                       first-run setup (the default)
+    python3 -m cli_tools_kit install FILE [flags]  run the installer for a
                                                   sources file (see sources.py)
 
 ``install`` takes the path of an ``installer.toml`` and passes every remaining
@@ -17,7 +17,7 @@ import sys
 
 from .onboarding import main
 
-USAGE = "usage: python3 -m cli_tool_kit install <installer.toml> [engine flags]"
+USAGE = "usage: python3 -m cli_tools_kit install <installer.toml> [engine flags]"
 
 
 def _install(argv):

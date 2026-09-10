@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cli_tool_kit import CronInstaller
+from cli_tools_kit import CronInstaller
 
 
 def test_install_writes_lines_with_tag(fake_crontab: Path) -> None:

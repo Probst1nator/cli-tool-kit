@@ -302,8 +302,10 @@ def run_installer(config_path, argv=None, **run_kwargs):
     pre-discovery hook, which the engine skips on the ``--check`` path, so that
     check stays network-free and sees whatever is already on disk.
 
-    Every other keyword goes to :func:`cli_tool_kit.gui_installer.run`.
+    Every other keyword goes to :func:`cli_tools_kit.gui_installer.run`.
     ``discovery_roots`` and ``pre_discovery`` are this function's to set.
+    ``prune`` reaches the walker that way, so a wrapper can name directories
+    its repos keep that hold no tools.
     """
     for reserved in ("discovery_roots", "pre_discovery"):
         if reserved in run_kwargs:

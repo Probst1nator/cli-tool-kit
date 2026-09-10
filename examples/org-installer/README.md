@@ -44,7 +44,7 @@ see the repo README, "Reusing the installer in your org".
 From your own tool tree:
 
 ```bash
-python3 -m cli_tool_kit
+python3 -m cli_tools_kit
 ```
 
 prints a brief to paste into Claude Code (or any agent with a structured

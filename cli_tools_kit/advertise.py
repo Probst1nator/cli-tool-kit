@@ -10,7 +10,7 @@ Usage:
 
     # At the very top of your tool's main script:
     import sys
-    from cli_tool_kit import ToolMetadata, advertise
+    from cli_tools_kit import ToolMetadata, advertise
 
     if "--advertise" in sys.argv:
         advertise(ToolMetadata(

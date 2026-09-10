@@ -13,7 +13,7 @@ file, and reaped its shortcuts.
 it one word and every path, filename and marker derives from it; override any
 individual field when a name has to be something else.
 
-    from cli_tool_kit import InstallerIdentity
+    from cli_tools_kit import InstallerIdentity
 
     ACME = InstallerIdentity(slug="acme-tools", title="Acme Tools")
 
@@ -186,7 +186,7 @@ class InstallerIdentity:
         """Environment additions that let a child process rebuild this identity.
 
         The engine installs a tool by running that tool's own ``--install`` in a
-        subprocess, where the tool's :class:`~cli_tool_kit.ToolInstaller` writes
+        subprocess, where the tool's :class:`~cli_tools_kit.ToolInstaller` writes
         the .desktop file and the alias. Passing the slug down means those
         artifacts carry the parent installer's marker and land in its alias
         file, instead of the first-party defaults.

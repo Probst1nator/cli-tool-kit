@@ -97,7 +97,7 @@ from the terminal).
 ```python
 #!/usr/bin/env python3
 import sys
-from cli_tool_kit import ToolMetadata, ToolInstaller, advertise
+from cli_tools_kit import ToolMetadata, ToolInstaller, advertise
 
 # MUST be before any heavy imports!
 if "--advertise" in sys.argv:
@@ -163,7 +163,7 @@ Tools that run on a schedule should use `CronInstaller` for idempotent, atomic
 cron-line management:
 
 ```python
-from cli_tool_kit import CronInstaller
+from cli_tools_kit import CronInstaller
 
 cron = CronInstaller("my-tool")  # unique marker for this tool's lines
 
@@ -233,7 +233,7 @@ if "--advertise" in sys.argv:
     sys.exit(0)
 ```
 
-For multi-file skills, `cli_tool_kit.skill_status(skill_name, bundled_files)`
+For multi-file skills, `cli_tools_kit.skill_status(skill_name, bundled_files)`
 does the comparison over a `{relative_path: text}` mapping (content-hash based,
 order-independent), returning the same three values.
 
@@ -273,7 +273,7 @@ must `--remove` then `--install` to update them.
 
 Where the `--advertise` probe describes one tool, this file describes where the
 tools come from: a parent installer that offers tools from more than one repo
-lists them here. `cli_tool_kit.sources` reads it; README § Sources has the
+lists them here. `cli_tools_kit.sources` reads it; README § Sources has the
 worked example.
 
 The file sits next to the installer and is tracked. It holds an array of tables:

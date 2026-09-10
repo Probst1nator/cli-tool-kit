@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from cli_tool_kit.taxonomy import cluster, corpus, embedder, groups
+from cli_tools_kit.taxonomy import cluster, corpus, embedder, groups
 
 
 def _toy_vectors():
@@ -274,7 +274,7 @@ def test_ensure_groups_rebuilds_when_stale(tmp_path, monkeypatch):
         _write_current_groups(tmp_path)
         return {}
 
-    monkeypatch.setattr("cli_tool_kit.taxonomy.build.build_groups", fake_build)
+    monkeypatch.setattr("cli_tools_kit.taxonomy.build.build_groups", fake_build)
     assert groups.ensure_groups(str(tmp_path)) == {"alpha": "audio"}
     assert calls == [6]
 
@@ -286,7 +286,7 @@ def test_ensure_groups_keeps_the_stored_file_when_the_rebuild_fails(tmp_path, mo
     def boom(root, k=6, seed=0, write=True, budget=None):
         raise embedder.EmbeddingUnavailable("no backend")
 
-    monkeypatch.setattr("cli_tool_kit.taxonomy.build.build_groups", boom)
+    monkeypatch.setattr("cli_tools_kit.taxonomy.build.build_groups", boom)
     assert groups.ensure_groups(str(tmp_path)) == {"alpha": "stale"}
 
 
@@ -297,7 +297,7 @@ def test_ensure_groups_does_not_rebuild_when_current(tmp_path, monkeypatch):
     def boom(root, k=6, seed=0, write=True, budget=None):
         raise AssertionError("rebuilt a current grouping")
 
-    monkeypatch.setattr("cli_tool_kit.taxonomy.build.build_groups", boom)
+    monkeypatch.setattr("cli_tools_kit.taxonomy.build.build_groups", boom)
     assert groups.ensure_groups(str(tmp_path)) == {"alpha": "audio"}
 
 

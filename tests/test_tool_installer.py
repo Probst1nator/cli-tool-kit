@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cli_tool_kit import ToolInstaller, ToolMetadata
+from cli_tools_kit import ToolInstaller, ToolMetadata
 
 
 def _make_script(home: Path) -> str:
@@ -157,7 +157,7 @@ def test_advertise_helper_emits_json(sandbox_home: Path, capsys) -> None:
     """advertise() prints JSON and SystemExits 0."""
     import json
     import pytest
-    from cli_tool_kit import advertise
+    from cli_tools_kit import advertise
 
     with pytest.raises(SystemExit) as exc_info:
         advertise(ToolMetadata(
@@ -181,7 +181,7 @@ def test_advertise_default_tags_when_unset(capsys) -> None:
     """When tags is None, advertise() emits the default ['GUI', 'Icon']."""
     import json
     import pytest
-    from cli_tool_kit import advertise
+    from cli_tools_kit import advertise
 
     with pytest.raises(SystemExit):
         advertise(ToolMetadata(
@@ -250,7 +250,7 @@ def test_advertise_emits_taxonomy_and_skill_fields_only_when_set(capsys) -> None
     record when set, and are absent (not null) when not."""
     import json
     import pytest
-    from cli_tool_kit import advertise
+    from cli_tools_kit import advertise
 
     with pytest.raises(SystemExit):
         advertise(ToolMetadata(

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from cli_tool_kit.taxonomy import llm_groups
+from cli_tools_kit.taxonomy import llm_groups
 
 BLURBS = {
     "audio_speak": "directory: audio_speak\nadvertises: Audio Speak | tts",

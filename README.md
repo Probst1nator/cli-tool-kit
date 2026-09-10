@@ -1,4 +1,4 @@
-# cli-tool-kit
+# cli-tools-kit
 
 A small library for self-installing Python CLI/GUI tools on Linux and Windows desktops.
 Provides:
@@ -32,14 +32,17 @@ See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0
+pip install cli-tools-kit
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0
+cli-tools-kit==0.6.0
 ```
+
+The git URL form still works if you need an unreleased commit:
+`pip install git+https://github.com/Probst1nator/cli-tools-kit.git@v0.6.0`.
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
 install/remove output; falls back to plain text if absent).
@@ -49,7 +52,7 @@ install/remove output; falls back to plain text if absent).
 ```python
 #!/usr/bin/env python3
 import sys
-from cli_tool_kit import ToolMetadata, ToolInstaller, advertise
+from cli_tools_kit import ToolMetadata, ToolInstaller, advertise
 
 # MUST come before any heavy imports!
 if "--advertise" in sys.argv:
@@ -97,7 +100,7 @@ call writes a `mytool` shim instead — see [§ Windows](#windows).
 ## Windows
 
 The kit runs on Windows as well as Linux. Every platform decision lives in
-`cli_tool_kit/host.py`; the differences a user sees are these.
+`cli_tools_kit/host.py`; the differences a user sees are these.
 
 - A CLI tool has no bash alias. `--install` writes two launcher scripts into
   `%LOCALAPPDATA%\<slug>\bin`: `<alias>.cmd` for cmd.exe and PowerShell, and
@@ -114,7 +117,7 @@ The kit runs on Windows as well as Linux. Every platform decision lives in
 ## Cron entries
 
 ```python
-from cli_tool_kit import CronInstaller
+from cli_tools_kit import CronInstaller
 
 cron = CronInstaller("my-tool")   # unique marker for this tool's entries
 
@@ -127,13 +130,15 @@ cron.install([
 cron.remove()                     # strips only lines bearing this marker
 ```
 
-Each managed line gets a trailing `# cli-tool-kit:<marker>` comment.
+Each managed line gets a trailing `# cli-tool-kit:<marker>` comment. The
+marker keeps the old project spelling so cron lines installed before the
+rename still match.
 Re-installing the same lines is a no-op; other tools' cron entries are
 untouched.
 
 ## Reusing the installer in your org
 
-`cli_tool_kit.gui_installer` is a batteries-included tkinter installer that any
+`cli_tools_kit.gui_installer` is a batteries-included tkinter installer that any
 tool tree can reuse instead of forking. Point it at your tree and it discovers
 every tool that answers `--advertise`, then installs or removes each one's
 desktop entry, shell alias and Claude Code skill.
@@ -142,7 +147,7 @@ desktop entry, shell alias and Claude Code skill.
 
 ```bash
 cd /path/to/your/tools
-python3 -m cli_tool_kit
+python3 -m cli_tools_kit
 ```
 
 That prints a brief you can paste into your coding agent (Claude Code or
@@ -160,8 +165,8 @@ its own. `InstallerIdentity` derives every per-host artifact from one slug:
 ```python
 # my-org-tools/installer.py
 import os
-from cli_tool_kit import InstallerIdentity
-from cli_tool_kit.gui_installer import run
+from cli_tools_kit import InstallerIdentity
+from cli_tools_kit.gui_installer import run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -201,7 +206,8 @@ Keyword-only; every argument defaults to `None`, meaning "leave the default".
 | `identity` | `LEGACY_IDENTITY` | The names above. The one argument a third party should always pass. |
 | `root_dir` | cwd | The tree to manage. Discovery, `.env` loading and the self-shortcut's `Path=` all anchor here. |
 | `entry_script` | this module | The script the manager shortcut and the login-check autostart entry launch. Pass `__file__` so they re-enter your wrapper, not the bare engine. |
-| `discoverer` | flat + `tools_*/` walk | `callable(root) -> [(entry_point_path, category), …]`. Pass your own for a differently shaped tree. |
+| `discoverer` | flat + `tools_*/` walk, or the wider walk once `discovery_roots` is set | `callable(root) -> [(entry_point_path, category), …]`. Pass your own for a differently shaped tree. |
+| `prune` | `None` | Extra directory names the default wider walk never enters, on top of the built-in set. Ignored when you pass your own `discoverer`. |
 | `discovery_roots` | `[root_dir]` | Scan these directories instead — for tools that live in a subdirectory or several. |
 | `group_by` | `"capability"` | Which field bands the GUI rows: `"capability"` (the advertised word) or `"category"` (whatever your discoverer assigned). Anything else raises `ValueError`. |
 | `pre_discovery` | `None` | `callable(refresh: bool)` run once before scanning, for side effects like cloning repos into a cache. Skipped on the `--check` path so a login hook never touches the network. |
@@ -238,7 +244,7 @@ others with `skill_targets`, and the screen lets the user tick which ones
 Apply writes to (keys `1`..`9`):
 
 ```python
-from cli_tool_kit.tui_installer import SkillTarget, claude_target
+from cli_tools_kit.tui_installer import SkillTarget, claude_target
 
 session = SkillTarget(
     key="fauclaude", label="fauclaude session plugin",
@@ -265,26 +271,39 @@ own venv, say) is honoured there too.
 
 ### Discovering your tools
 
-The default discoverer accepts two layouts, and a tree may mix them:
+With one `root_dir`, the default discoverer accepts two layouts, and a tree may
+mix them:
 
 - **flat** — `<root>/<tool>/main.py` (plus `requirements.txt`). Category empty,
   so rows band by each tool's advertised `capability`.
 - **nested** — `<root>/tools_<category>/<tool>/main.py`, where the folder
   supplies the category label.
 
-Directories starting with `_` or `.` are skipped. Anything else: pass a
-`discoverer`. If an expected tool does not appear, its `--advertise` is the
+Directories starting with `_` or `.` are skipped.
+
+With `discovery_roots` — several repos, each shaped as its authors liked — the
+default is a wider walk of every root. A directory is a tool when it holds
+`requirements.txt` next to `main.py` or `<dirname>.py` with dashes written as
+underscores, which is how a one-tool repo names its script (`manim-kit` ships
+`manim_kit.py`). The root itself counts, so such a repo is one tool. The walk
+goes four levels deep at most and never enters `.venv`, `venv`, `.git`,
+`node_modules`, `__pycache__`, `out`, `cache`, `build`, `dist`, `archive`, a
+name starting with `vendor`, or a dot directory. Pass `prune=[...]` to add more
+names to that list. The category is the tool's parent directory name, empty when
+the parent is the root, and the root's own name when the tool is the root.
+
+Anything else: pass a `discoverer`. If an expected tool does not appear, its `--advertise` is the
 thing to fix — it must print JSON and exit *before* any heavy import, or it
 trips the 5-second probe timeout. See [`PROTOCOL.md`](PROTOCOL.md).
 
 ### Grouping rows by meaning
 
 `group_by="capability"` bands rows by the one word each tool advertises. Once a
-tree outgrows that, `cli_tool_kit.taxonomy` reads what the tree already
+tree outgrows that, `cli_tools_kit.taxonomy` reads what the tree already
 documents about itself and produces a small set of named categories:
 
 ```python
-from cli_tool_kit.taxonomy import ensure_groups
+from cli_tools_kit.taxonomy import ensure_groups
 
 def discover(root):
     groups = ensure_groups(root)          # {tool_name: band label}
@@ -304,14 +323,14 @@ and needs no network.
 Icon thumbnails need Pillow:
 
 ```bash
-pip install "cli-tool-kit[gui] @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0"
+pip install "cli-tools-kit[gui]==0.6.0"
 ```
 
 Installing the package also exposes a `cli-tool-installer` console script.
 
 ## Sources: installing tools from several repos
 
-An organisation's tools rarely sit in one checkout. `cli_tool_kit.sources` reads
+An organisation's tools rarely sit in one checkout. `cli_tools_kit.sources` reads
 a list of repos from a TOML file, puts each one on disk, and hands the engine one
 discovery root per repo. The installer that consumes it is a few lines long.
 
@@ -369,8 +388,8 @@ The consumer:
 ```python
 #!/usr/bin/env python3
 import os
-from cli_tool_kit import InstallerIdentity
-from cli_tool_kit.sources import run_installer
+from cli_tools_kit import InstallerIdentity
+from cli_tools_kit.sources import run_installer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 run_installer(os.path.join(HERE, "installer.toml"),
@@ -387,7 +406,7 @@ function's own to set and passing either raises `TypeError`.
 Without a wrapper, the same thing from the command line:
 
 ```bash
-python3 -m cli_tool_kit install path/to/installer.toml --list
+python3 -m cli_tools_kit install path/to/installer.toml --list
 ```
 
 That surface uses the default installer identity, so an organisation that wants
@@ -396,7 +415,7 @@ its own namespace on the host writes the wrapper above and runs that.
 The two loaders are usable on their own:
 
 ```python
-from cli_tool_kit.sources import load_sources, resolve_sources
+from cli_tools_kit.sources import load_sources, resolve_sources
 
 sources = load_sources("installer.toml")            # [Source(name, url, path), …]
 roots = resolve_sources(sources, root="~/acme-tools", refresh=False)
