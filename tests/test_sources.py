@@ -151,6 +151,29 @@ def test_refresh_pulls_a_clone_ff_only(tmp_path: Path, monkeypatch) -> None:
     assert "clone" not in calls[0]
 
 
+def test_a_failed_pull_keeps_the_clone_as_a_discovery_root(tmp_path: Path,
+                                                           monkeypatch) -> None:
+    """A remote that is gone, a network that is down, a diverged history.
+
+    One line about it, and the checkout that is already on disk is still used.
+    """
+    target = _repo(tmp_path / "root" / "org" / "lab")
+
+    class Result:
+        returncode = 128
+        stdout = ""
+        stderr = ("fatal: repository 'https://example.invalid/lab.git/' not found\n")
+
+    monkeypatch.setattr(sources.subprocess, "run", lambda cmd, **kw: Result())
+    lines: list = []
+    source = Source(name="org/lab", url="https://example.invalid/lab.git")
+    assert resolve_sources([source], tmp_path / "root", refresh=True,
+                           log=lines.append) == [target]
+    assert target.is_dir()
+    assert len(lines) == 1
+    assert "not found" in lines[0]
+
+
 def test_a_checkout_given_by_path_is_never_pulled(tmp_path: Path, monkeypatch) -> None:
     given = _repo(tmp_path / "given")
     calls: list = []
@@ -289,9 +312,11 @@ def _tree(tmp_path: Path) -> Path:
                   '[[source]]\nname = "org/tools"\npath = "."\n')
 
 
-def test_run_installer_wires_roots_and_the_hook(tmp_path: Path, engine) -> None:
+def test_run_installer_wires_roots_and_the_hook(tmp_path: Path, engine,
+                                                monkeypatch) -> None:
     config = _tree(tmp_path)
-    sources.run_installer(config, argv=["--list"])
+    monkeypatch.chdir(tmp_path)
+    sources.run_installer(config, argv=["--list", "--root", str(tmp_path)])
     assert engine["root_dir"] == str(tmp_path)
     assert engine["discovery_roots"] == [str(tmp_path / "org" / "tools")]
     assert callable(engine["pre_discovery"])
@@ -311,7 +336,8 @@ def test_root_flag_wins_and_is_consumed(tmp_path: Path, engine) -> None:
     assert sys.argv[1:] == ["--check"]
 
 
-def test_local_root_is_the_default_when_no_flag(tmp_path: Path, engine) -> None:
+def test_local_root_is_the_default_when_no_flag(tmp_path: Path, engine,
+                                                never_asks) -> None:
     config = _tree(tmp_path)
     _write(config.with_name("installer.local.toml"), f'root = "{tmp_path / "here"}"\n')
     sources.run_installer(config, argv=[])
@@ -332,13 +358,147 @@ url = "https://example.invalid/lab.git"
 """)
     calls: list = []
     monkeypatch.setattr(sources.subprocess, "run", _fake_git(calls))
-    sources.run_installer(config, argv=[])
+    sources.run_installer(config, argv=["--root", str(tmp_path)])
     roots = engine["discovery_roots"]
     # Before the hook: only what is on disk, so --check never needs the network.
     assert roots == [str(tmp_path / "org" / "tools")]
     engine["pre_discovery"](False)
     assert roots == [str(tmp_path / "org" / "tools"), str(tmp_path / "org" / "lab")]
     assert any("clone" in call for call in calls)
+
+
+# --- where the tools are installed ------------------------------------------
+
+def _refuse(default):
+    raise AssertionError(f"asked for a root, suggesting {default}")
+
+
+@pytest.fixture
+def never_asks(monkeypatch):
+    """Fail the test if either prompt is reached."""
+    monkeypatch.setattr(sources, "_ask_root_gui", _refuse)
+    monkeypatch.setattr(sources, "_ask_root_stdin", _refuse)
+
+
+def _answers(monkeypatch, answer, gui: bool = True):
+    """Route the question to one screen and answer it. Returns the suggestions."""
+    seen: list = []
+
+    def ask(default):
+        seen.append(default)
+        return answer
+
+    monkeypatch.setattr(sources, "_wants_gui", lambda argv: gui)
+    monkeypatch.setattr(sources, "_ask_root_gui" if gui else "_ask_root_stdin", ask)
+    if not gui:
+        monkeypatch.setattr(sources.sys, "stdin",
+                            type("Tty", (), {"isatty": staticmethod(lambda: True)})())
+    return seen
+
+
+def test_the_root_flag_is_used_without_asking(tmp_path: Path, engine, never_asks,
+                                              monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    sources.run_installer(config, argv=["--root", str(tmp_path / "chosen")])
+    assert engine["root_dir"] == str(tmp_path / "chosen")
+    assert (tmp_path / "chosen").is_dir()      # created for us
+    # Nothing is remembered: the flag is for this run.
+    assert not config.with_name("installer.local.toml").exists()
+
+
+def test_the_answer_is_used_and_remembered(tmp_path: Path, engine, monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    chosen = tmp_path / "picked"
+    suggested = _answers(monkeypatch, str(chosen))
+
+    sources.run_installer(config, argv=[])
+    assert engine["root_dir"] == str(chosen)
+    assert chosen.is_dir()
+    assert suggested == [str(tmp_path / "tools")]   # <cwd>/<default_root_name>
+    assert sources.local_root(config) == str(chosen)
+
+    # Asked once: the second run reads the file.
+    monkeypatch.setattr(sources, "_ask_root_gui", _refuse)
+    sources.run_installer(config, argv=[])
+    assert engine["root_dir"] == str(chosen)
+
+
+def test_the_answer_keeps_the_local_files_sources(tmp_path: Path, engine,
+                                                  monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    local = _write(config.with_name("installer.local.toml"),
+                   f'[[source]]\nname = "org/tools"\npath = "{tmp_path / "other"}"\n')
+    _answers(monkeypatch, str(tmp_path / "picked"))
+    sources.run_installer(config, argv=[])
+    assert sources.local_root(config) == str(tmp_path / "picked")
+    assert load_sources(config)[0].path == str(tmp_path / "other")
+    assert '[[source]]' in local.read_text(encoding="utf-8")
+
+
+def test_an_existing_root_in_the_local_file_is_never_overwritten(tmp_path: Path) -> None:
+    config = _write(tmp_path / "installer.toml", "")
+    _write(config.with_name("installer.local.toml"), f'root = "{tmp_path / "mine"}"\n')
+    assert sources.save_local_root(config, str(tmp_path / "other")) is False
+    assert sources.local_root(config) == str(tmp_path / "mine")
+
+
+def test_the_default_root_name_names_the_suggested_folder(tmp_path: Path, engine,
+                                                          monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    suggested = _answers(monkeypatch, str(tmp_path / "picked"))
+    sources.run_installer(config, argv=[], default_root_name="WW3-tools")
+    assert suggested == [str(tmp_path / "WW3-tools")]
+
+
+def test_cancelling_the_question_stops_cleanly(tmp_path: Path, engine,
+                                               monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _answers(monkeypatch, None)
+    with pytest.raises(SystemExit) as exit_info:
+        sources.run_installer(config, argv=[])
+    assert exit_info.value.code == 0
+    assert engine == {}                        # the installer never opened
+
+
+def test_the_text_screen_asks_on_stdin(tmp_path: Path, engine, monkeypatch) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    suggested = _answers(monkeypatch, str(tmp_path / "picked"), gui=False)
+    sources.run_installer(config, argv=["--tui"])
+    assert suggested == [str(tmp_path / "tools")]
+    assert engine["root_dir"] == str(tmp_path / "picked")
+
+
+@pytest.mark.parametrize("argv", [["--list"], ["--check"], ["--apply", "all"],
+                                  ["--apply=all"]])
+def test_a_headless_run_takes_the_default_and_says_so(tmp_path: Path, engine,
+                                                      never_asks, monkeypatch,
+                                                      capsys, argv) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    sources.run_installer(config, argv=list(argv))
+    assert engine["root_dir"] == str(tmp_path / "tools")
+    assert (f"root: {tmp_path / 'tools'} (pass --root to change)"
+            in capsys.readouterr().out)
+    # A default is not an answer, so it is not written to the local file.
+    assert not config.with_name("installer.local.toml").exists()
+
+
+def test_no_question_without_a_terminal(tmp_path: Path, engine, never_asks,
+                                        monkeypatch, capsys) -> None:
+    config = _tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sources, "_wants_gui", lambda argv: False)
+    monkeypatch.setattr(sources.sys, "stdin",
+                        type("Pipe", (), {"isatty": staticmethod(lambda: False)})())
+    sources.run_installer(config, argv=[])
+    assert engine["root_dir"] == str(tmp_path / "tools")
+    assert "pass --root to change" in capsys.readouterr().out
 
 
 def test_run_installer_refuses_to_have_its_own_arguments_overridden(tmp_path: Path,

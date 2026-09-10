@@ -24,6 +24,11 @@ for a source matched by ``name``:
     name = "acme/lab"
     path = "/home/me/work/lab-tools"
 
+The root is never guessed from where the config file happens to sit.
+``run_installer`` takes ``--root``, else the ``root`` of the local file, else it
+asks the user, and writes the answer back into the local file so the question is
+asked once.
+
 A source resolves in this order: the path from the local file, then the ``path``
 from the tracked file, then an existing ``<root>/<name>``, then a clone of
 ``url`` into ``<root>/<name>``. Only ``https://`` URLs are cloned, the clone is
@@ -56,7 +61,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
-__all__ = ["Source", "load_sources", "resolve_sources", "run_installer"]
+__all__ = ["Source", "load_sources", "resolve_sources", "run_installer",
+           "local_root", "save_local_root", "default_root"]
 
 # How far below the top-level installer.toml a nested one is still read.
 MAX_NESTING = 1
@@ -132,6 +138,35 @@ def local_root(config_path, local_path=None) -> Optional[str]:
     return None
 
 
+def save_local_root(config_path, root, local_path=None, log: Callable = print) -> bool:
+    """Write ``root`` into the local file next to ``config_path``.
+
+    Returns False and changes nothing when the file already sets a ``root``: a
+    value someone put there by hand is never overwritten. Existing
+    ``[[source]]`` entries are kept, and the key is written above them, because
+    a top-level key written after a table would belong to that table.
+    """
+    config_path = Path(config_path)
+    local = Path(local_path) if local_path is not None else _local_path_for(config_path)
+    if local_root(config_path, local) is not None:
+        return False
+    existing = ""
+    if local.is_file():
+        try:
+            existing = local.read_text(encoding="utf-8")
+        except OSError as exc:
+            log(f"{local.name}: not updated ({exc})")
+            return False
+    line = f'root = "{root}"\n'
+    try:
+        local.write_text(line + ("\n" + existing.lstrip("\n") if existing.strip() else ""),
+                         encoding="utf-8")
+    except OSError as exc:
+        log(f"{local.name}: not written ({exc})")
+        return False
+    return True
+
+
 def load_sources(config_path, local_path=None, log: Callable = print) -> List[Source]:
     """The ``[[source]]`` entries of one TOML file, local overrides applied.
 
@@ -174,10 +209,14 @@ def _git(*args):
     return result.returncode == 0, (result.stdout + result.stderr).strip()
 
 
-def _clone_reason(output: str) -> str:
+def _git_reason(output: str, fallback: str = "git failed") -> str:
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     return next((line for line in lines if line.startswith("fatal:")),
-                lines[-1] if lines else "git clone failed")
+                lines[-1] if lines else fallback)
+
+
+def _clone_reason(output: str) -> str:
+    return _git_reason(output, "git clone failed")
 
 
 def _resolve_one(source: Source, root: Path, refresh: bool, log: Callable,
@@ -189,9 +228,13 @@ def _resolve_one(source: Source, root: Path, refresh: bool, log: Callable,
     target = root.joinpath(*source.name.split("/"))
     if target.is_dir():
         if refresh and clone and (target / ".git").is_dir() and source.url:
-            ok, _ = _git("-C", str(target), "pull", "--ff-only")
+            ok, out = _git("-C", str(target), "pull", "--ff-only")
+            # A pull can fail for reasons the user cannot fix here: the remote
+            # is gone, the network is down, the history diverged. One line, and
+            # the checkout that is already on disk is used as it stands.
             log(f"{source.name}: pulled" if ok else
-                f"{source.name}: left as is, local changes or diverged history")
+                f"{source.name}: not updated, using the checkout as it is"
+                f" ({_git_reason(out)})")
         return target.resolve()
 
     if not source.url:
@@ -279,16 +322,126 @@ def _take_root(argv: List[str]):
     return rest, root
 
 
-def default_root(config_path) -> str:
-    """Two levels above the config file's directory.
+def default_root(name: str = "tools") -> str:
+    """The suggested install location: ``<current directory>/<name>``.
 
-    A bootstrap script clones the first repo to ``<root>/<org>/<tool tree>``, so
-    the other sources belong two levels up from the file that lists them.
+    Absolute, because the user is shown this string and has to recognise where
+    it points. It is only ever a suggestion: what the user types in the dialog
+    or on stdin wins, and ``--root`` wins over both.
     """
-    return str(Path(config_path).absolute().parent.parent.parent)
+    return str(Path.cwd().joinpath(name).absolute())
 
 
-def run_installer(config_path, argv=None, **run_kwargs):
+# Flags that mean nobody is watching the screen, so nothing may block on input.
+HEADLESS_FLAGS = ("--list", "--check", "--apply")
+
+
+def _is_headless(argv: Sequence[str]) -> bool:
+    return any(arg in HEADLESS_FLAGS or arg.startswith("--apply=") for arg in argv)
+
+
+def _wants_gui(argv: Sequence[str]) -> bool:
+    """True when the tkinter window is the screen this run will open."""
+    from . import tui_installer  # noqa: PLC0415 — pulls in the engine, keep it lazy
+    from .gui_installer import _HAVE_TK  # noqa: PLC0415
+    return not tui_installer.prefer_tui(force_tui="--tui" in argv,
+                                        force_gui="--gui" in argv,
+                                        have_tk=_HAVE_TK)
+
+
+def _ask_root_gui(default: str) -> Optional[str]:
+    """A small window asking where the tools go. None when the user cancels."""
+    import tkinter as tk  # noqa: PLC0415
+    from tkinter import filedialog  # noqa: PLC0415
+
+    win = tk.Tk()
+    win.title("Install location")
+    chosen: List[str] = []
+    value = tk.StringVar(value=default)
+
+    tk.Label(win, text="Where should the tools be installed?",
+             font=("", 12, "bold")).pack(anchor="w", padx=16, pady=(16, 6))
+    tk.Label(win, text="The folder is created if it does not exist.",
+             justify="left").pack(anchor="w", padx=16)
+
+    row = tk.Frame(win)
+    row.pack(fill="x", padx=16, pady=12)
+    entry = tk.Entry(row, textvariable=value, width=54)
+    entry.pack(side="left", fill="x", expand=True)
+
+    def browse():
+        picked = filedialog.askdirectory(parent=win, title="Install location",
+                                         initialdir=os.path.dirname(value.get()) or "/")
+        if picked:
+            value.set(str(Path(picked).absolute()))
+
+    tk.Button(row, text="Browse…", command=browse).pack(side="left", padx=(8, 0))
+
+    buttons = tk.Frame(win)
+    buttons.pack(fill="x", padx=16, pady=(0, 16))
+
+    def ok(*_):
+        text = value.get().strip()
+        if text:
+            chosen.append(text)
+        win.destroy()
+
+    tk.Button(buttons, text="OK", command=ok, width=10).pack(side="right")
+    tk.Button(buttons, text="Cancel", command=win.destroy, width=10).pack(side="right", padx=8)
+    win.bind("<Return>", ok)
+    win.protocol("WM_DELETE_WINDOW", win.destroy)
+    entry.focus_set()
+    entry.icursor("end")
+    win.mainloop()
+    return chosen[0] if chosen else None
+
+
+def _ask_root_stdin(default: str) -> Optional[str]:
+    """One line on stdin, before any curses screen opens. None on Ctrl-D."""
+    try:
+        answer = input(f"Where should the tools be installed? [{default}] ")
+    except EOFError:
+        return None
+    return answer.strip() or default
+
+
+def _resolve_root(config_path: Path, root_arg: Optional[str], argv: Sequence[str],
+                  default_root_name: str, log: Callable = print) -> str:
+    """Settle the clone root: the flag, the local file, the user, the default.
+
+    Asks only when the first two miss. The tkinter dialog is used when this run
+    opens the tkinter window, the stdin prompt when it opens the text screen on
+    a terminal. A headless run (``--list``, ``--apply``, ``--check``, or a text
+    screen without a terminal) never asks: it takes the default and says so.
+    """
+    if root_arg:
+        return str(Path(os.path.expanduser(root_arg)).absolute())
+    stored = local_root(config_path)
+    if stored:
+        return stored
+
+    default = default_root(default_root_name)
+    if _is_headless(argv):
+        log(f"root: {default} (pass --root to change)")
+        return default
+
+    if _wants_gui(argv):
+        answer = _ask_root_gui(default)
+    elif sys.stdin is not None and sys.stdin.isatty():
+        answer = _ask_root_stdin(default)
+    else:
+        log(f"root: {default} (pass --root to change)")
+        return default
+
+    if answer is None:
+        print("No install location chosen, nothing was installed.")
+        raise SystemExit(0)
+    chosen = str(Path(os.path.expanduser(answer)).absolute())
+    save_local_root(config_path, chosen, log=log)
+    return chosen
+
+
+def run_installer(config_path, argv=None, default_root_name: str = "tools", **run_kwargs):
     """Read a sources file, wire the engine to it, and run the installer.
 
     ``--root DIR`` is taken from ``argv`` (``sys.argv[1:]`` by default) and the
@@ -297,10 +450,17 @@ def run_installer(config_path, argv=None, **run_kwargs):
     engine's flag: it reaches the pre-discovery hook, which then pulls every
     clone.
 
-    The root is ``--root`` if given, else the ``root`` of the local file, else
-    two levels above the config file's directory. Cloning happens in the
+    The root is ``--root`` if given, else the ``root`` of
+    ``installer.local.toml``, else the user's answer to a question, else — on a
+    headless run only — ``<current directory>/<default_root_name>``. The answer
+    is written into ``installer.local.toml``, so the question is asked once.
+    The root directory is created if it does not exist. Cloning happens in the
     pre-discovery hook, which the engine skips on the ``--check`` path, so that
     check stays network-free and sees whatever is already on disk.
+
+    ``default_root_name`` is the folder name the suggestion ends in, so an
+    organisation's installer can suggest ``<cwd>/WW3-tools`` rather than
+    ``<cwd>/tools``.
 
     Every other keyword goes to :func:`cli_tools_kit.gui_installer.run`.
     ``discovery_roots`` and ``pre_discovery`` are this function's to set.
@@ -316,8 +476,11 @@ def run_installer(config_path, argv=None, **run_kwargs):
     argv, root_arg = _take_root(argv)
     sys.argv = [sys.argv[0]] + argv
 
-    root = root_arg or local_root(config_path) or default_root(config_path)
-    root = str(Path(os.path.expanduser(root)).absolute())
+    root = _resolve_root(config_path, root_arg, argv, default_root_name)
+    try:
+        os.makedirs(root, exist_ok=True)
+    except OSError as exc:
+        print(f"{root}: not created ({exc})")
     sources = load_sources(config_path)
 
     # The engine reads DISCOVERY_ROOTS after the hook has run, so the hook fills

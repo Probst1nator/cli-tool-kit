@@ -1918,6 +1918,17 @@ class InstallerApp:
         # Windows/Mac use MouseWheel
         self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
+    def _fit_canvas_width(self):
+        """Stretch the scrollable content to the canvas' current width.
+
+        The canvas window item keeps the width it is given, so without this the
+        table falls back to its requested width — the minimum every column
+        needs — and leaves the right of the window empty.
+        """
+        width = self.canvas.winfo_width()
+        if width > 1:
+            self.canvas.itemconfig(self.canvas_window, width=width)
+
     def _on_canvas_configure(self, event):
         """Handle canvas resize: adjust content width and show/hide scrollbar."""
         # Make content fill canvas width
@@ -2203,6 +2214,15 @@ class InstallerApp:
         # Restore window geometry
         self.root.geometry(geometry)
 
+        # _setup_ui built a new canvas, and the old one died with the old UI.
+        # The mouse wheel is bound to the widget by name, so re-bind it, and
+        # give the new window item the canvas width at once: without it the
+        # table keeps its requested width, which is the sum of the minimum
+        # column widths, and sits at the left with empty space to its right.
+        self._bind_mousewheel()
+        self.root.update_idletasks()
+        self._fit_canvas_width()
+
     def _setup_ui(self):
         # Configure styles
         self.style = ttk.Style()
@@ -2416,6 +2436,10 @@ class InstallerApp:
                 current_row = self._render_tool_group(group, current_row)
 
         self.canvas.grid(row=0, column=0, sticky="nsew")
+        # Bound here rather than only in _position_window, which runs once at
+        # startup: a theme switch rebuilds the UI, and the new canvas needs the
+        # binding that keeps the table as wide as the window.
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
         # Scrollbar initially hidden - will be shown in _position_window if needed
 
         # Footer / Buttons

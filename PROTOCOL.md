@@ -308,8 +308,20 @@ Resolution order for one source, first hit wins:
 4. A full clone of `url` into `<root>/<name>`.
 
 The root is the `--root DIR` flag if given, else `root` from the local file, else
-two levels above the directory holding `installer.toml`. Nothing is cloned into a
-root that does not exist or cannot be written to.
+the user's answer to "Where should the tools be installed?". The answer is
+written into `installer.local.toml` as its `root`, above any `[[source]]` tables
+the file already holds, so the question is asked once per machine. A `root` that
+is already in that file is never overwritten. The suggestion is
+`<current directory>/<name>` as an absolute path, where `<name>` is the
+`default_root_name` the wrapper passed to `run_installer` (`tools` by default).
+The chosen directory is created if it does not exist.
+
+A headless run — `--list`, `--apply`, `--check`, or the text screen without a
+terminal — never asks. It takes the suggestion and prints one line:
+
+```
+root: /home/me/tools (pass --root to change)
+```
 
 A resolved repo may hold an `installer.toml` of its own. Its `[[source]]` tables
 are read and resolved the same way, one nested level deep and no further, with

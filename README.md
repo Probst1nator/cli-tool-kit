@@ -364,8 +364,20 @@ path = "/home/me/work/lab-tools"
 
 A source resolves in this order: the path from the local file, then the `path`
 from the tracked file, then an existing `<root>/<name>`, then a clone of `url`
-into `<root>/<name>`. The root is `--root DIR` if given, else the local file's
-`root`, else two levels above the directory the config file sits in.
+into `<root>/<name>`.
+
+The root is `--root DIR` if given, else the local file's `root`, else the answer
+to a question. The GUI asks in a small dialog before discovery, the text screen
+asks in one line on stdin, and both suggest `<current directory>/<name>` as an
+absolute path — `<name>` is `run_installer`'s `default_root_name`, `tools` by
+default. The answer is written into `installer.local.toml` as its `root`, above
+any `[[source]]` tables already there, so the question is asked once per
+machine; a `root` that file already has is left alone. The directory is created
+if it does not exist, and cancelling the dialog installs nothing.
+
+A headless run never asks: `--list`, `--apply`, `--check`, or a text screen with
+no terminal take the suggestion and print `root: /abs/path (pass --root to
+change)`.
 
 Cloning is deliberately narrow. Only `https://` URLs are cloned, `ext::` and
 `file://` transports and any hook are switched off for the git call, the clone is
@@ -394,14 +406,16 @@ from cli_tools_kit.sources import run_installer
 HERE = os.path.dirname(os.path.abspath(__file__))
 run_installer(os.path.join(HERE, "installer.toml"),
               identity=InstallerIdentity(slug="acme-tools", title="Acme Tools"),
+              default_root_name="acme-tools",
               entry_script=__file__)
 ```
 
 `run_installer` takes `--root DIR` for itself and leaves every other flag to the
 engine, so `--list`, `--apply`, `--skill-target`, `--check`, `--refresh`, `--tui`
-and `--gui` work as they do without sources. Every keyword besides `config_path`
-and `argv` goes to `run()`; `discovery_roots` and `pre_discovery` are the
-function's own to set and passing either raises `TypeError`.
+and `--gui` work as they do without sources. Every keyword besides `config_path`,
+`argv` and `default_root_name` goes to `run()`; `discovery_roots` and
+`pre_discovery` are the function's own to set and passing either raises
+`TypeError`.
 
 Without a wrapper, the same thing from the command line:
 
