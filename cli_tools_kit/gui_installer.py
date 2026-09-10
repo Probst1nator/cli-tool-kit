@@ -1836,6 +1836,12 @@ class InstallerApp:
         # warning so the two don't fight over the log/dialog at the same tick.
         self.root.after(200, self._maybe_auto_update_on_startup)
 
+    # Standard freedesktop icon sizes. wm iconphoto silently fails to set
+    # _NET_WM_ICON at all when handed only a source-resolution (e.g. 512x512)
+    # image on some Tk/X11 combinations, so multiple smaller sizes are passed
+    # and the window manager picks the one it wants.
+    _ICON_SIZES = (16, 24, 32, 48, 64, 128)
+
     def _set_window_icon(self) -> None:
         """Apply SELF_DESKTOP_ICON to the live window (taskbar/titlebar).
 
@@ -1849,11 +1855,13 @@ class InstallerApp:
             return
         try:
             if _HAVE_PIL:
-                image = ImageTk.PhotoImage(Image.open(icon_path))
+                source = Image.open(icon_path).convert("RGBA")
+                images = [ImageTk.PhotoImage(source.resize((size, size), Image.LANCZOS))
+                          for size in self._ICON_SIZES]
             else:
-                image = tk.PhotoImage(file=icon_path)
-            self.root.iconphoto(True, image)
-            self._icon_photo = image  # keep a reference; Tk drops the icon otherwise
+                images = [tk.PhotoImage(file=icon_path)]
+            self.root.iconphoto(True, *images)
+            self._icon_photos = images  # keep references; Tk drops the icon otherwise
         except Exception:
             pass  # cosmetic only; never block startup over a bad/unsupported icon
 
