@@ -1794,6 +1794,7 @@ class InstallerApp:
         self.root.withdraw()  # Hide until properly sized
         self.tools = tools
         self.root.title(WINDOW_TITLE)
+        self._set_window_icon()
         saved_theme = load_config().get("theme", "ocean")
         self.current_theme = saved_theme if saved_theme in self.THEMES else "ocean"
 
@@ -1834,6 +1835,27 @@ class InstallerApp:
         # logged (see _maybe_auto_update_on_startup). Runs after the orphan
         # warning so the two don't fight over the log/dialog at the same tick.
         self.root.after(200, self._maybe_auto_update_on_startup)
+
+    def _set_window_icon(self) -> None:
+        """Apply SELF_DESKTOP_ICON to the live window (taskbar/titlebar).
+
+        SELF_DESKTOP_ICON is otherwise only written into the .desktop file's
+        Icon= line, so a run straight from a terminal showed the generic Tk
+        icon instead. Only an absolute image path can be used here (a
+        freedesktop icon *name* has no file to load without a theme lookup).
+        """
+        icon_path = SELF_DESKTOP_ICON
+        if not icon_path or not os.path.isabs(icon_path) or not os.path.isfile(icon_path):
+            return
+        try:
+            if _HAVE_PIL:
+                image = ImageTk.PhotoImage(Image.open(icon_path))
+            else:
+                image = tk.PhotoImage(file=icon_path)
+            self.root.iconphoto(True, image)
+            self._icon_photo = image  # keep a reference; Tk drops the icon otherwise
+        except Exception:
+            pass  # cosmetic only; never block startup over a bad/unsupported icon
 
     def _get_primary_monitor_geometry(self) -> tuple[int, int, int, int]:
         """Get primary monitor geometry (x, y, width, height). Falls back to tkinter defaults."""
