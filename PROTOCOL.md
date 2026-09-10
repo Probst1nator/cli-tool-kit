@@ -268,3 +268,51 @@ must `--remove` then `--install` to update them.
 | Code changes in `.py` files | no | Script re-read on each launch |
 | Internal module changes | no | Python reloads on each run |
 | Data directory changes | no | Paths resolved dynamically in code |
+
+## The sources file (`installer.toml`)
+
+Where the `--advertise` probe describes one tool, this file describes where the
+tools come from: a parent installer that offers tools from more than one repo
+lists them here. `cli_tool_kit.sources` reads it; README § Sources has the
+worked example.
+
+The file sits next to the installer and is tracked. It holds an array of tables:
+
+```toml
+[[source]]
+name = "acme/lab"
+path = "lab-tools"
+url = "https://github.com/acme/lab-tools"
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `name` | yes | The source's identity. Slashes make directory levels, so `acme/lab` clones to `<root>/acme/lab`. A table without a name is reported and dropped. |
+| `path` | no | A checkout to use as it is, relative to the file it is written in. `~` is expanded. |
+| `url` | no | Where to clone from when no path is on disk. Must be `https://`; anything else is reported and dropped. |
+
+A top-level `root` is **not** written in this file. It is a per-machine fact and
+belongs in `installer.local.toml`.
+
+`installer.local.toml` sits next to `installer.toml`, is optional, and is
+gitignored by convention. It holds a top-level `root` (a string, `~` expanded)
+and `[[source]]` tables matched to the tracked file by `name`, each adding or
+replacing that source's `path`. A `url` is never overridden and an unmatched
+name is ignored.
+
+Resolution order for one source, first hit wins:
+
+1. `path` from `installer.local.toml`, if that directory exists.
+2. `path` from `installer.toml`, if that directory exists.
+3. `<root>/<name>`, if that directory exists.
+4. A full clone of `url` into `<root>/<name>`.
+
+The root is the `--root DIR` flag if given, else `root` from the local file, else
+two levels above the directory holding `installer.toml`. Nothing is cloned into a
+root that does not exist or cannot be written to.
+
+A resolved repo may hold an `installer.toml` of its own. Its `[[source]]` tables
+are read and resolved the same way, one nested level deep and no further, with
+paths relative to that file and clones under the same root. A path that has
+already been resolved is not visited again, so a file pointing back at its
+parent cannot loop, and the result lists each path once.

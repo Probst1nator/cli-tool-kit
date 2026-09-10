@@ -17,8 +17,17 @@ The GUI installer engine is a submodule, since importing it pulls in tkinter:
     run(identity=InstallerIdentity(slug="acme-tools"), root_dir=HERE,
         entry_script=__file__)
 
+Tools that live in several repos are listed in an installer.toml and resolved
+by cli_tool_kit.sources:
+
+    from cli_tool_kit.sources import run_installer
+
+    run_installer("installer.toml", identity=InstallerIdentity(slug="acme-tools"),
+                  entry_script=__file__)
+
 See README.md § Reusing the installer in your org for the full run() signature,
-and `python3 -m cli_tool_kit` to be walked through the setup.
+README.md § Sources for the TOML format, and `python3 -m cli_tool_kit` to be
+walked through the setup.
 
 See PROTOCOL.md for the full --advertise specification.
 """
@@ -47,4 +56,4 @@ __all__ = [
     "read_installed_skill",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

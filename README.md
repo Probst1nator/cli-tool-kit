@@ -22,18 +22,23 @@ Provides:
   (discovery layout, repo-cache bootstrap, login-check policy, window/desktop
   identities) is configurable. See [§ GUI installer engine](#gui-installer-engine).
 
+- **`sources`** — one installer offering tools from several repos. A TOML
+  file lists them, the kit clones what is missing over HTTPS and hands the
+  engine one discovery root per repo. See
+  [§ Sources](#sources-installing-tools-from-several-repos).
+
 See [`PROTOCOL.md`](PROTOCOL.md) for the full `--advertise` specification.
 
 ## Install
 
 ```bash
-pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.4.0
+pip install git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0
 ```
 
 Or pin in `requirements.txt`:
 
 ```
-cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.4.0
+cli-tool-kit @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0
 ```
 
 Requires Python ≥ 3.10. Optional runtime dep: `termcolor` (colored
@@ -299,10 +304,109 @@ and needs no network.
 Icon thumbnails need Pillow:
 
 ```bash
-pip install "cli-tool-kit[gui] @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.2.2"
+pip install "cli-tool-kit[gui] @ git+https://github.com/Probst1nator/cli-tool-kit.git@v0.5.0"
 ```
 
 Installing the package also exposes a `cli-tool-installer` console script.
+
+## Sources: installing tools from several repos
+
+An organisation's tools rarely sit in one checkout. `cli_tool_kit.sources` reads
+a list of repos from a TOML file, puts each one on disk, and hands the engine one
+discovery root per repo. The installer that consumes it is a few lines long.
+
+`installer.toml` is tracked and shared by everyone:
+
+```toml
+[[source]]
+name = "acme/tools"
+path = "."                                    # relative to this file
+
+[[source]]
+name = "acme/lab"
+url = "https://github.com/acme/lab-tools"     # cloned into <root>/acme/lab
+
+[[source]]
+name = "manim-kit"
+url = "https://github.com/AutomatedAlchemy/manim-kit"
+```
+
+`installer.local.toml` next to it is optional and belongs to one machine, so keep
+it out of git. It sets the root and replaces a `path` for a source matched by
+`name`:
+
+```toml
+root = "/home/me/checkouts"
+
+[[source]]
+name = "acme/lab"
+path = "/home/me/work/lab-tools"
+```
+
+A source resolves in this order: the path from the local file, then the `path`
+from the tracked file, then an existing `<root>/<name>`, then a clone of `url`
+into `<root>/<name>`. The root is `--root DIR` if given, else the local file's
+`root`, else two levels above the directory the config file sits in.
+
+Cloning is deliberately narrow. Only `https://` URLs are cloned, `ext::` and
+`file://` transports and any hook are switched off for the git call, the clone is
+full rather than shallow (a tool that stamps its output with its commit needs the
+history), and nothing is cloned into a root that does not exist or cannot be
+written to. A clone that fails prints one line and that source is dropped, so a
+colleague without access to a private repo still gets everybody else's tools.
+`--refresh` brings the clones up to date with `git pull --ff-only`; a checkout
+given by `path` is never pulled. Cloning happens in the engine's `pre_discovery`
+hook, which `--check` skips, so the login check stays network-free.
+
+A repo that is itself an installer tree can carry its own `installer.toml`. Its
+`[[source]]` entries are resolved too, one nested level deep and no further, with
+paths relative to that file and clones under the same root. A path that is
+already resolved is not visited twice, so a file pointing back at its parent
+cannot loop, and duplicates are dropped.
+
+The consumer:
+
+```python
+#!/usr/bin/env python3
+import os
+from cli_tool_kit import InstallerIdentity
+from cli_tool_kit.sources import run_installer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+run_installer(os.path.join(HERE, "installer.toml"),
+              identity=InstallerIdentity(slug="acme-tools", title="Acme Tools"),
+              entry_script=__file__)
+```
+
+`run_installer` takes `--root DIR` for itself and leaves every other flag to the
+engine, so `--list`, `--apply`, `--skill-target`, `--check`, `--refresh`, `--tui`
+and `--gui` work as they do without sources. Every keyword besides `config_path`
+and `argv` goes to `run()`; `discovery_roots` and `pre_discovery` are the
+function's own to set and passing either raises `TypeError`.
+
+Without a wrapper, the same thing from the command line:
+
+```bash
+python3 -m cli_tool_kit install path/to/installer.toml --list
+```
+
+That surface uses the default installer identity, so an organisation that wants
+its own namespace on the host writes the wrapper above and runs that.
+
+The two loaders are usable on their own:
+
+```python
+from cli_tool_kit.sources import load_sources, resolve_sources
+
+sources = load_sources("installer.toml")            # [Source(name, url, path), …]
+roots = resolve_sources(sources, root="~/acme-tools", refresh=False)
+```
+
+`resolve_sources` returns one `Path` per repo it could resolve and logs a line
+per repo it could not (`log=` takes any callable, `print` by default). Pass
+`clone=False` to resolve from the filesystem alone and never reach the network.
+Reading the TOML needs Python 3.11 or the `tomli` package, which is a dependency
+on 3.10.
 
 ## Tests
 
